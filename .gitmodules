@@ -1,0 +1,3 @@
+[submodule "Ego4d"]
+	path = Ego4d
+	url = https://github.com/facebookresearch/Ego4d.git
