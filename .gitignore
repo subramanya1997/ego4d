@@ -117,4 +117,4 @@ dmypy.json
 .*DS_Store
 
 # dataset
-./dataset/*
+dataset/
