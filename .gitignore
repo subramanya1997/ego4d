@@ -118,3 +118,4 @@ dmypy.json
 
 # dataset
 dataset/
+dataset/*
