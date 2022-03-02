@@ -1,2 +1,2 @@
 #!/bin/bash
-python feature_extractors.py --model facebook/wav2vec2-base-960h --input_audio_directory /scratch/snagabhushan_umass_edu/dataset/v1/audio/ --audio_feature_save_path /scratch/snagabhushan_umass_edu/dataset/v1/audio_features/
+python feature_extractors.py --model facebook/wav2vec2-base --input_audio_directory /scratch/snagabhushan_umass_edu/dataset/v1/audio/ --audio_feature_save_path /scratch/snagabhushan_umass_edu/dataset/v1/audio_features/

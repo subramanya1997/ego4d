@@ -19,7 +19,7 @@ def extract_features(paths, args):
     feature_sizes = {}
     for _filename, _path in tqdm(paths.items()):
         audio_input, sample_rate = sf.read(_path)
-        inputs = processor(audio_input[:16000], sampling_rate=sample_rate, return_tensors="pt").to(device)
+        inputs = processor(audio_input, sampling_rate=sample_rate, return_tensors="pt").to(device)
         with torch.no_grad():
             outputs = model(**inputs)
 
