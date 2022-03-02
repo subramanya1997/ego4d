@@ -61,7 +61,13 @@ class Ego4d_NLQ(Dataset):
         
         if save_or_load or update:
             self.save_data(save_or_load_path)
-            
+    
+
+    def __len__(self):
+        return len(self.idx_counter)
+
+    def __getitem__(self, idx):
+        return self.data[idx]
     
     def save_data(self, path):
         saved_data = {}
@@ -193,4 +199,3 @@ class Ego4d_NLQ(Dataset):
                     }
                     self.data.append(record)
                     self.idx_counter += 1
-
