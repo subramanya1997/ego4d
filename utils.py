@@ -2,9 +2,10 @@
 import json
 import os
 from collections import defaultdict
-from re import L
 import moviepy.editor as mp
 from tqdm import tqdm
+import pickle
+
 from config import Config
 
 def readJsonFile(path="./dataset/tmp/ego4d.json"):
@@ -29,3 +30,16 @@ def extractAudioFromClips(video_path="./dataset/tmp/v1/clips/", audio_path="./da
 def get_nearest_audio_frame(time, floor_or_ceil=None):
     """Obtain the nearest frame for a given time, audo fps, and feature window."""
     return floor_or_ceil(int(time * Config.AUDIO_FPS / Config.AUDIO_WINDOW))
+
+def get_nearest_frame(time, floor_or_ceil=None):
+    """Obtain the nearest frame for a given time, video fps, and feature window."""
+    return floor_or_ceil(int(time * Config.VIDEO_FPS / Config.WINDOW_SIZE))
+
+def load_pickle(filename):
+    with open(filename, mode="rb") as handle:
+        data = pickle.load(handle)
+        return data
+
+def save_pickle(data, filename):
+    with open(filename, mode="wb") as handle:
+        pickle.dump(data, handle, protocol=pickle.HIGHEST_PROTOCOL)
