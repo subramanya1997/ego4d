@@ -1,0 +1,14 @@
+# Model Params
+num_epochs: 100
+learning_rate: 0.001
+force_cpu: false
+
+
+
+# Video Preprocessing Parameters
+input_train_split: data/annotations/nlq_train.json
+input_val_split: data/annotations/nlq_val.json
+#input_test_split: data/annotations/nlq_test.json
+video_feature_read_path: data/video_features/
+clip_feature_save_path: data/saved_clip_features/ # save path for output clip features
+output_save_path: data/nlq_official_v1 # save path for clip info along with train-val split
