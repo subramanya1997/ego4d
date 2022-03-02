@@ -10,11 +10,11 @@ import json
 from collections import defaultdict
 
 def extract_features(paths, args):
-    torch.cuda.is_available = lambda : False
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print("Device: ", device)
     processor = Wav2Vec2Processor.from_pretrained(args['model'])
-    model = Wav2Vec2Model.from_pretrained(args['model']).to(device)
+    model = Wav2Vec2Model.from_pretrained(args['model'], output_hidden_states = True).to(device)
+    model.eval()
     os.makedirs(args["audio_feature_save_path"], exist_ok=True)
     feature_sizes = {}
     for _filename, _path in tqdm(paths.items()):
@@ -23,7 +23,7 @@ def extract_features(paths, args):
         with torch.no_grad():
             outputs = model(**inputs)
 
-        audio_features = outputs.extract_features.to('cpu')
+        audio_features = outputs.last_hidden_state.to('cpu')
 
         feature_save_path = os.path.join(args["audio_feature_save_path"], _filename+".pt")
         torch.save(audio_features, feature_save_path)
