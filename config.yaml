@@ -1,3 +1,11 @@
+# Model Params
+num_epochs: 100
+learning_rate: 0.001
+force_cpu: false
+
+
+
+# Video Preprocessing Parameters
 input_train_split: data/annotations/nlq_train.json
 input_val_split: data/annotations/nlq_val.json
 #input_test_split: data/annotations/nlq_test.json
