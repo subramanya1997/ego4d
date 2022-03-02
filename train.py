@@ -7,11 +7,12 @@ import argparse
 import torch
 
 from torch.utils.tensorboard import SummaryWriter
-from torch.optim import Adam, ConstantLR
+from torch.optim import Adam
 
 from model.meme import MEME
 from model.meme_loss import MEME_LOSS
-from utils import decode_candidate_clips
+from utils.metrics import decode_candidate_clips
+from utils.data_processing import Ego4d_NLQ, get_train_loader, get_test_loader
 
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -21,20 +22,23 @@ def parse_args():
     parser.add_argument(
         "--max-ans-len", help="maximum length of answer clip", type=int, default=None
     )
+    parser.add_argument(
+        "--force-cpu", help="enforce cpu computation", type=int, default=None
+    )
 
     try:
-        parsed_args = vars(parser.parse_args())
+        parsed_args = parser.parse_args()
     except (IOError) as msg:
         parser.error(str(msg))
 
     
     # Read config yamls file
-    config_file = parsed_args.pop("config_file")
+    config_file = parsed_args.config_file
     with open(config_file, "r") as f:
         config = yaml.safe_load(f)
     for key, value in config.items():
-        if key not in parsed_args or parsed_args[key] is None:
-            parsed_args[key] = value
+        if key not in parsed_args.__dict__ or parsed_args.__dict__[key] is None:
+            parsed_args.key = value
     
     if not parsed_args.force_cpu:
         parsed_args.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -44,28 +48,16 @@ def parse_args():
     return parsed_args
 
 def get_dataloader(args):
-    # train_loader = get_train_loader(
-    #     dataset=dataset["train_set"], video_features=visual_features, configs=configs
-    # )
-    # train_eval_loader = get_test_loader(
-    #     dataset=dataset["train_set"], video_features=visual_features, configs=configs
-    # )
-    # val_loader = (
-    #     None
-    #     if dataset["val_set"] is None
-    #     else get_test_loader(dataset["val_set"], visual_features, configs)
-    # )
-    # test_loader = get_test_loader(
-    #     dataset=dataset["test_set"], video_features=visual_features, configs=configs
-    # )
-    # configs.num_train_steps = len(train_loader) * configs.epochs
-    # num_train_batches = len(train_loader)
-    # num_val_batches = 0 if val_loader is None else len(val_loader)
-    # num_test_batches = len(test_loader)
-    train_loader = []
-    val_loader = []
+    train_nql = Ego4d_NLQ('/scratch/snagabhushan_umass_edu/dataset/v1/annotations/nlq_train.json', '/scratch/shantanuagar_umass_edu/ego4d/saved_clip_features/', split="train", wordEmbedding="bert", number_of_sample=1000, save_or_load=True, update=False, save_or_load_path="/scratch/snagabhushan_umass_edu/dataset/v1/save/nlq/train.pkl")
+    val_nql = Ego4d_NLQ('/scratch/snagabhushan_umass_edu/dataset/v1/annotations/nlq_val.json', '/scratch/shantanuagar_umass_edu/ego4d/saved_clip_features/', split="val", wordEmbedding="bert", number_of_sample=1000, save_or_load=False, update=False, save_or_load_path="/scratch/snagabhushan_umass_edu/dataset/v1/save/nlq/val.pkl")
+
+    train_loader = get_train_loader(train_nql, batch_size=1)
+    val_loader = get_test_loader(val_nql, batch_size=1)
     test_loader = []
-    return train_loader, val_loader, test_loader
+
+    video_feature_size, query_feature_size = train_nql.video_feature_size, train_nql.query_feature_size
+
+    return train_loader, val_loader, test_loader, video_feature_size, query_feature_size
 
 def init_model(args):
     model = MEME(args)
@@ -95,13 +87,14 @@ def train(model, dataloader, model_loss, optimizer, args, writer, epoch):
     iter = 0
     total_loss = 0
     for data in tqdm_obj:
-        (clip_id, features, starts, ends, query) = data
+        (clip_id, features, query_emb, starts, ends, query) = data
         features = features.to(args.device)
+        query_emb = query_emb.to(args.device)
         starts = starts.to(args.device)
         ends = ends.to(args.device)
         query = query.to(args.device)
 
-        pred = model(features)
+        pred = model(features, query_emb)
         loss = model_loss(pred, starts, ends)
         optimizer.zero_grad()
         loss.backward()
@@ -178,7 +171,8 @@ def test(model, dataloader, model_loss, args, writer):
 
 if __name__ == "__main__":
     args = parse_args()
-    train_loader, val_loader, test_loader = get_dataloader(args)
+    train_loader, val_loader, test_loader, video_feature_size, query_feature_size = get_dataloader(args)
+    args.embedding_dim = video_feature_size + query_feature_size
     model, model_loss, optimizer = init_model(args)
     writer = SummaryWriter()
 

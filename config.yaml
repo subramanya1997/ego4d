@@ -1,4 +1,5 @@
 # Model Params
+hidden_size: 512
 num_epochs: 100
 learning_rate: 0.001
 force_cpu: false

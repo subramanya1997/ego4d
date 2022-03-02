@@ -61,7 +61,11 @@ class Ego4d_NLQ(Dataset):
         
         if save_or_load or update:
             self.save_data(save_or_load_path)
-    
+
+        # get feature sizes
+        _, clip_feature, query_emb, _, _, _ = self[0]
+        self.video_feature_size = clip_feature.shape[-1]
+        self.query_feature_size = query_emb.shape[-1]
 
     def __len__(self):
         return self.idx_counter
@@ -70,10 +74,11 @@ class Ego4d_NLQ(Dataset):
         clip_path = self.data[idx]['clip_path']
         clip_feature = torch.load(clip_path)
         clip_id = self.data[idx]['clip_id']
+        query_emb = self.data[idx]['word_emb']
         is_s = self.data[idx]['is_s_frame']
         is_e = self.data[idx]['is_e_frame']
         is_ans = self.data[idx]['is_within_range']
-        return clip_id, clip_feature, is_s, is_e, is_ans
+        return clip_id, clip_feature, query_emb, is_s, is_e, is_ans
     
     def save_data(self, path):
         saved_data = {}
