@@ -23,7 +23,7 @@ class Ego4d_NLQ(Dataset):
             features_path (str): location of clip features file
             split (str): train, val or test
             wordEmbedding (str): bert (model for text embeddings)
-            number_of_sample (int): None reads all values, or number of samples
+            number_of_sample (int): None reads all values, or number of annotations
             save_or_load (bool): save to pickle (Not able to save the whole file)
             update (bool): to update save pickel file
             save_or_load_path (str): path to load or save
@@ -183,7 +183,7 @@ class Ego4d_NLQ(Dataset):
         for clp, data_item in tqdm(data.items(), total=len(data), desc=f"process episodic nlq {self.split}"):
             
             if self.number_of_sample is not None:
-                if self.number_of_sample <= self.idx_counter:
+                if self.number_of_sample <= self.idx_sample_query:
                     break
 
             num_frames = data_item["num_frames"]
@@ -200,6 +200,11 @@ class Ego4d_NLQ(Dataset):
             #     clip_feature = torch.load(clip_path)
 
             for timestamp, exact_time, sentence, ann_uid, query_idx in zipper:
+
+                if self.number_of_sample is not None:
+                    if self.number_of_sample <= self.idx_sample_query:
+                        break
+
                 s_frame = 0
                 e_frame = num_frames
                 if "test" != self.split: #at test give the whole clip as input
@@ -210,8 +215,7 @@ class Ego4d_NLQ(Dataset):
 
                 #tokenizer for bert with [cls] token
                 _query = sentence.strip().lower()
-                sents =  "[CLS] " + _query
-                input = tokenizer(sents, return_tensors='pt')
+                input = tokenizer(_query, return_tensors='pt')
                 _word_features = None
                 with torch.no_grad():
                     _word_features = model(**input).last_hidden_state
