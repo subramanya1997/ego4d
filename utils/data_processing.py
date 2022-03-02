@@ -9,7 +9,7 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 
 #import transformer
-from transformers import BertTokenizer
+from transformers import BertTokenizer, BertModel
 
 #import custom functions
 from utils.data_utils import get_nearest_frame, load_pickle, save_pickle
@@ -49,23 +49,29 @@ class Ego4d_NLQ(Dataset):
         self.number_of_sample = number_of_sample
         
         self.idx_counter = 0
+        self.sample_query_map = {}
+        self.idx_sample_query = 0
         
         assert (
             type(raw_data) == dict
         ), "Annotation file format {} not supported.".format(type(raw_data))
         
-        raw_data, clip_video_map = self._reformat_data(raw_data, self.split == "test")
+        raw_data, clip_video_map = self._reformat_data(raw_data)
         self.all_clip_video_map.update(clip_video_map)
         self._process_frame_embeddings(raw_data, features_path)
+
         print(f"#{self.split}: {self.idx_counter}")
         
         if save_or_load or update:
             self.save_data(save_or_load_path)
 
         # get feature sizes
-        _, clip_feature, query_emb, _, _, _ = self[0]
-        self.video_feature_size = clip_feature.shape[-1]
-        self.query_feature_size = query_emb.shape[-1]
+        if self.idx_counter != 0:
+            _, clip_feature, query_features, _, _, _, _ = self[0]
+            self.video_feature_size = clip_feature.shape[-1]
+            self.query_feature_size = query_features.shape[-1]
+        else:
+            print('No Data Loaded!')
 
     def __len__(self):
         return self.idx_counter
@@ -74,11 +80,22 @@ class Ego4d_NLQ(Dataset):
         clip_path = self.data[idx]['clip_path']
         clip_feature = torch.load(clip_path)
         clip_id = self.data[idx]['clip_id']
-        query_emb = self.data[idx]['word_emb']
+        query_features = self.data[idx]['query_features']
         is_s = self.data[idx]['is_s_frame']
         is_e = self.data[idx]['is_e_frame']
         is_ans = self.data[idx]['is_within_range']
-        return clip_id, clip_feature, query_emb, is_s, is_e, is_ans
+        frame_length = self.data[idx]['frame_length']
+        return clip_id, clip_feature, query_features, is_s, is_e, is_ans, frame_length
+    
+    def get_query_sample(self, idx):
+        '''
+        '''
+        sample_query = self.sample_query_map[idx]
+        s_idx, e_idx = sample_query["range"]
+        items = []
+        for _idx in range(s_idx, e_idx):
+            items.append(self.__getitem__(_idx))
+        return items
     
     def save_data(self, path):
         saved_data = {}
@@ -106,7 +123,7 @@ class Ego4d_NLQ(Dataset):
         """Process the question to make it canonical."""
         return question.strip(" ").strip("?").lower() + "?"
 
-    def _reformat_data(self, split_data, test_split=False):
+    def _reformat_data(self, split_data):
         """Convert the format from JSON files.
         fps, num_frames, timestamps, sentences, exact_times,
         annotation_uids, query_idx.
@@ -135,14 +152,10 @@ class Ego4d_NLQ(Dataset):
 
                 for ann_datum in clip_datum["annotations"]:
                     for index, datum in enumerate(ann_datum["language_queries"]):
-
-                        if not test_split:
-                            start_time = float(datum["clip_start_sec"])
-                            end_time = float(datum["clip_end_sec"])
-                        else:
-                            # Random placeholders for test set.
-                            start_time = 0.
-                            end_time = 0.
+                        
+                        start_time = float(datum["clip_start_sec"])
+                        end_time = float(datum["clip_end_sec"])
+                
 
                         if "query" not in datum or not datum["query"]:
                             continue
@@ -163,6 +176,8 @@ class Ego4d_NLQ(Dataset):
         tokenizer = None
         if self.wordEmbedding == "bert":
             tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
+            model = BertModel.from_pretrained('bert-base-uncased', output_hidden_states = True ) # Whether the model returns all hidden-states.
+            model.eval()         
             
         self.data = []
         for clp, data_item in tqdm(data.items(), total=len(data), desc=f"process episodic nlq {self.split}"):
@@ -185,8 +200,22 @@ class Ego4d_NLQ(Dataset):
             #     clip_feature = torch.load(clip_path)
 
             for timestamp, exact_time, sentence, ann_uid, query_idx in zipper:
-                s_frame = max(0, timestamp[0]-5)
-                e_frame = min(num_frames, timestamp[1]+5)
+                s_frame = 0
+                e_frame = num_frames
+                if "test" != self.split: #at test give the whole clip as input
+                    s_frame = max(0, timestamp[0]-5)
+                    e_frame = min(num_frames-1, timestamp[1]+5)
+
+                _query_idx_range = [self.idx_counter]
+
+                #tokenizer for bert with [cls] token
+                _query = sentence.strip().lower()
+                sents =  "[CLS] " + _query
+                input = tokenizer(sents, return_tensors='pt')
+                _word_features = None
+                with torch.no_grad():
+                    _word_features = model(**input).last_hidden_state
+
                 words = sentence
                 for frame_num in range(s_frame, e_frame+1):
                     record = {
@@ -195,21 +224,49 @@ class Ego4d_NLQ(Dataset):
                         "clip_path": clip_path,
                         # "clip_feature": clip_feature,
                         "words": words,
-                        "query": sentence.strip().lower(),
-                        "word_emb": tokenizer(sentence.strip().lower()),
+                        "query": _query,
+                        "query_features": _word_features,
                         "annotation_uid": ann_uid,
                         "query_idx": query_idx,
+                        "sample_query_idx": self.idx_sample_query,
                         "s_frame": timestamp[0],
                         "e_frame": timestamp[1],
                         "exact_s_time": exact_time[0],
                         "exact_e_time": exact_time[1],
                         "frame_num": frame_num,
+                        "frame_length": e_frame - s_frame,
                         "is_s_frame": True if frame_num == timestamp[0] else False,
                         "is_e_frame": True if frame_num == timestamp[1] else False,
                         "is_within_range": True if frame_num >= timestamp[0] and frame_num <= timestamp[1] else False,
                     }
                     self.data.append(record)
                     self.idx_counter += 1
+                
+                self.sample_query_map[self.idx_sample_query] = {
+                    "clip_id": str(clp),
+                    "annotation_uid": ann_uid,
+                    "query_idx": query_idx,
+                    "range" : _query_idx_range.append( self.idx_counter )   
+                }
+                self.idx_sample_query += 1
+
+def get_train_loader(dataset, batch_size):
+    train_loader = DataLoader(
+        dataset=dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        # collate_fn=train_collate_fn,
+    )
+    return train_loader
+
+def get_test_loader(dataset, batch_size):
+    test_loader = DataLoader(
+        dataset=dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        # collate_fn=test_collate_fn,
+    )
+    return test_loader
 
 def get_train_loader(dataset, batch_size):
     train_loader = DataLoader(
