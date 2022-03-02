@@ -9,7 +9,8 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 from torch.optim import Adam, ConstantLR
 
-from model import MEME, MEME_LOSS
+from model.meme import MEME
+from model.meme_loss import MEME_LOSS
 from utils import decode_candidate_clips
 
 def parse_args():

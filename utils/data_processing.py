@@ -6,13 +6,13 @@ import math
 
 #import pytorch
 import torch
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, DataLoader
 
 #import transformer
 from transformers import BertTokenizer
 
 #import custom functions
-from utils import get_nearest_frame, load_pickle, save_pickle
+from utils.data_utils import get_nearest_frame, load_pickle, save_pickle
 from config import Config
 
 class Ego4d_NLQ(Dataset):
@@ -64,10 +64,16 @@ class Ego4d_NLQ(Dataset):
     
 
     def __len__(self):
-        return len(self.idx_counter)
+        return self.idx_counter
 
     def __getitem__(self, idx):
-        return self.data[idx]
+        clip_path = self.data[idx]['clip_path']
+        clip_feature = torch.load(clip_path)
+        clip_id = self.data[idx]['clip_id']
+        is_s = self.data[idx]['is_s_frame']
+        is_e = self.data[idx]['is_e_frame']
+        is_ans = self.data[idx]['is_within_range']
+        return clip_id, clip_feature, is_s, is_e, is_ans
     
     def save_data(self, path):
         saved_data = {}
@@ -169,9 +175,9 @@ class Ego4d_NLQ(Dataset):
                         data_item["query_idx"],
             )
             clip_path = os.path.join(features_path, clp+'.pt')
-            clip_feature = None 
-            if os.path.exists(features_path):
-                clip_feature = torch.load(clip_path)
+            # clip_feature = None 
+            # if os.path.exists(features_path):
+            #     clip_feature = torch.load(clip_path)
 
             for timestamp, exact_time, sentence, ann_uid, query_idx in zipper:
                 s_frame = max(0, timestamp[0]-5)
@@ -182,7 +188,7 @@ class Ego4d_NLQ(Dataset):
                         "sample_id": self.idx_counter,
                         "clip_id": str(clp),
                         "clip_path": clip_path,
-                        "clip_feature": clip_feature,
+                        # "clip_feature": clip_feature,
                         "words": words,
                         "query": sentence.strip().lower(),
                         "word_emb": tokenizer(sentence.strip().lower()),
@@ -199,3 +205,21 @@ class Ego4d_NLQ(Dataset):
                     }
                     self.data.append(record)
                     self.idx_counter += 1
+
+def get_train_loader(dataset, batch_size):
+    train_loader = DataLoader(
+        dataset=dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        # collate_fn=train_collate_fn,
+    )
+    return train_loader
+
+def get_test_loader(dataset, batch_size):
+    test_loader = DataLoader(
+        dataset=dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        # collate_fn=test_collate_fn,
+    )
+    return test_loader
