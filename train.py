@@ -8,12 +8,17 @@ import torch
 
 from torch.utils.tensorboard import SummaryWriter
 from torch.optim import Adam, ConstantLR
+
 from model import MEME, MEME_LOSS
+from utils import decode_candidate_clips
 
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "-c", "--config-file", help="Config File with all the parameters", required=True
+    )
+    parser.add_argument(
+        "--max-ans-len", help="maximum length of answer clip", type=int, default=None
     )
 
     try:
@@ -72,6 +77,12 @@ def init_model(args):
     #scheduler = ConstantLR(optimizer, factor=0.95,total_iters=args.num_epochs*args.num_batches)
     
     return model, model_loss, optimizer
+
+def infer_from_model(pred):
+    start = pred[:, 0].cpu().numpy()
+    end = pred[:, 1].cpu().numpy()
+    max_len = args.max_len
+    return decode_candidate_clips(start, end, args.topk, max_len)
 
 def train(model, dataloader, model_loss, optimizer, args, writer, epoch):
     model.train()
