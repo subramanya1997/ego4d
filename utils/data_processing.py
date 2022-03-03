@@ -38,6 +38,8 @@ class Ego4d_NLQ(Dataset):
                 self.wordEmbedding =  saved_data['wordEmbedding']
                 self.idx_counter = saved_data['idx_counter']
                 self.data = saved_data['data']
+                self.video_feature_size = saved_data['video_feature_size']
+                self.query_feature_size = saved_data['query_feature_size']
                 return
 
         raw_data = self._load_json(annotations_path)
@@ -67,7 +69,7 @@ class Ego4d_NLQ(Dataset):
 
         # get feature sizes
         if self.idx_counter != 0:
-            _, clip_feature, query_features, _, _, _, _ = self[0]
+            _, _, _,clip_feature, query_features, _, _, _, _, _ = self[0]
             self.video_feature_size = clip_feature.shape[-1]
             self.query_feature_size = query_features.shape[-1]
         else:
@@ -80,12 +82,15 @@ class Ego4d_NLQ(Dataset):
         clip_path = self.data[idx]['clip_path']
         clip_feature = torch.load(clip_path)
         clip_id = self.data[idx]['clip_id']
+        query_id = self.data[idx]['query_idx']
         query_features = self.data[idx]['query_features']
+        ann_id = self.data[idx]['annotation_uid']
         is_s = self.data[idx]['is_s_frame']
         is_e = self.data[idx]['is_e_frame']
         is_ans = self.data[idx]['is_within_range']
         frame_length = self.data[idx]['frame_length']
-        return clip_id, clip_feature, query_features, is_s, is_e, is_ans, frame_length
+        _time = [self.data[idx]["exact_s_time"], self.data[idx]["exact_e_time"]]
+        return clip_id, query_id, ann_id, clip_feature, query_features, _time, is_s, is_e, is_ans, frame_length
     
     def get_query_sample(self, idx):
         '''
@@ -106,6 +111,9 @@ class Ego4d_NLQ(Dataset):
         saved_data['wordEmbedding'] = self.wordEmbedding
         saved_data['idx_counter'] =  self.idx_counter
         saved_data['data'] = self.data
+        saved_data['video_feature_size'] = self.video_feature_size 
+        saved_data['query_feature_size'] = self.query_feature_size
+
 
         if not os.path.exists(path): #save create folder
             pass
