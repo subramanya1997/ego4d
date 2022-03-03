@@ -10,13 +10,15 @@ class MEME_LOSS(nn.Module):
         output = self.em_joint_loss(pred, target_start, target_end)
         return output
 
-    def em_joint_loss(self, pred, target_start, target_end):
+    def em_joint_loss(self, pred, target_start, target_end, target_in_range):
         """
         Compute the EM loss for joint prediction.
         pred: (batch_size, 3)
         target_start: (batch_size,)
         target_end: (batch_size,)
         """
-        loss = 0.5 * self.loss_fn(pred[:, 0], target_start) + \
-                0.5 * self.loss_fn(pred[:, 1], target_end)
+        loss = 1/3 * self.loss_fn(pred[:, 0], target_start) + \
+                1/3 * self.loss_fn(pred[:, 1], target_end) + \
+                1/3 * self.loss_fn(pred[:, 2], target_in_range)
+
         return torch.mean(loss)

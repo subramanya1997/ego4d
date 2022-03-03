@@ -76,22 +76,46 @@ class Ego4d_NLQ(Dataset):
             print('No Data Loaded!')
 
     def __len__(self):
-        return self.idx_counter
+        if self.split=="train":
+            return self.idx_counter
+        else:
+            return len(self.sample_query_map)
 
     def __getitem__(self, idx):
-        clip_path = self.data[idx]['clip_path']
-        clip_feature = torch.load(clip_path)
-        clip_id = self.data[idx]['clip_id']
-        query_id = self.data[idx]['query_idx']
-        query_features = self.data[idx]['query_features']
-        ann_id = self.data[idx]['annotation_uid']
-        is_s = self.data[idx]['is_s_frame']
-        is_e = self.data[idx]['is_e_frame']
-        is_ans = self.data[idx]['is_within_range']
-        frame_length = self.data[idx]['frame_length']
-        _time = [self.data[idx]["exact_s_time"], self.data[idx]["exact_e_time"]]
-        return clip_id, query_id, ann_id, clip_feature, query_features, _time, is_s, is_e, is_ans, frame_length
+        if self.split == "train":
+            clip_path = self.data[idx]['clip_path']
+            clip_feature = torch.load(clip_path)
+            frame_num = self.data[idx]['frame_num']
+            clip_feature = clip_feature[frame_num,:]
+            clip_id = self.data[idx]['clip_id']
+            query_features = self.data[idx]['query_features']
+            is_s = self.data[idx]['is_s_frame']
+            is_e = self.data[idx]['is_e_frame']
+            is_ans = self.data[idx]['is_within_range']
+            frame_length = self.data[idx]['frame_length']
+            return clip_id, clip_feature, query_features, is_s, is_e, is_ans, frame_length
+        
+        return self.get_test_query(idx)
+
+        
     
+    def get_test_query(self,idx):
+        sample_query = self.sample_query_map[idx]
+        s_idx, e_idx = sample_query["range"]
+        data = self.data[s_idx:e_idx]
+        clip_path = data[0]['clip_path']
+        clip_id = data[0]['clip_id']
+        clip_features = torch.load(clip_path)
+
+        assert (clip_features.shape[0] == len(data)) and len(list(set([x['clip_id'] for x in data]))) == 1
+
+        query_features = [item['query_features'] for item in data]
+        is_s = [item['is_s_frame'] for item in data]
+        is_e = [item['is_e_frame'] for item in data]
+        is_ans = [item['is_within_range'] for item in data]
+        frame_length = [item['frame_length'] for item in data]
+        return clip_id, clip_features, query_features, is_s, is_e, is_ans, frame_length
+
     def get_query_sample(self, idx):
         '''
         '''
@@ -262,23 +286,6 @@ class Ego4d_NLQ(Dataset):
                 }
                 self.idx_sample_query += 1
 
-def get_train_loader(dataset, batch_size):
-    train_loader = DataLoader(
-        dataset=dataset,
-        batch_size=batch_size,
-        shuffle=True,
-        # collate_fn=train_collate_fn,
-    )
-    return train_loader
-
-def get_test_loader(dataset, batch_size):
-    test_loader = DataLoader(
-        dataset=dataset,
-        batch_size=batch_size,
-        shuffle=False,
-        # collate_fn=test_collate_fn,
-    )
-    return test_loader
 
 def get_train_loader(dataset, batch_size):
     train_loader = DataLoader(
@@ -297,3 +304,12 @@ def get_test_loader(dataset, batch_size):
         # collate_fn=test_collate_fn,
     )
     return test_loader
+
+def train_collate_fn(batch):
+    clip_id, clip_features, query_features, is_s, is_e, is_ans, frame_length = zip(*batch)
+    clip_features = torch.stack(clip_features)
+    query_features = torch.stack(query_features)
+
+    print(is_s)
+    is_s = torch.stack(is_s)
+    return batch
