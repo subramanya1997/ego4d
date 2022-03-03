@@ -1,6 +1,7 @@
 #import libs
 import json
 import os
+from pydoc import cli
 from tqdm import tqdm
 import math
 
@@ -142,7 +143,7 @@ class Ego4d_NLQ(Dataset):
         is_e = [item['is_e_frame'] for item in data]
         is_ans = [item['is_within_range'] for item in data]
         frame_length = [item['frame_length'] for item in data]
-        return clip_id, clip_features, query_features, is_s, is_e, is_ans, frame_length, idx
+        return clip_id, clip_features, query_features, is_s, is_e, is_ans, frame_length
 
 
     def getfromidx(self, idx):
@@ -351,21 +352,26 @@ def get_test_loader(dataset, batch_size):
         dataset=dataset,
         batch_size=batch_size,
         shuffle=False,
-        # collate_fn=test_collate_fn,
+        collate_fn=train_collate_fn,
     )
     return test_loader
 
 def train_collate_fn(batch):
     clip_id, clip_features, query_features, is_s, is_e, is_ans, frame_length = zip(*batch)
+    if clip_features[0] is None: #TODO
+        return clip_id, clip_features, query_features, is_s, is_e, is_ans #TODO
+
     clip_id = [x for x in clip_id]
-    clip_features = torch.stack(clip_features)
+    assert len(clip_features) == 1
+    clip_features = [x.squeeze(0) for x in clip_features]
+    clip_features = clip_features[0]
 
     #get only CLS embedding for query
-    query_features = [x[:,0,:] for x in query_features]
+    query_features = [x[:,0,:] for x in query_features[0]]
     query_features = torch.cat(query_features, dim=0)
-    is_s = torch.stack([torch.tensor(x) for x in is_s]).to(torch.float)
-    is_e = torch.stack([torch.tensor(x) for x in is_e]).to(torch.float)
-    is_ans = torch.stack([torch.tensor(x) for x in is_ans]).to(torch.float)
-    frame_length = torch.stack([torch.tensor(x) for x in frame_length])
+    is_s = torch.stack([torch.tensor(x) for x in is_s]).to(torch.float)[0]
+    is_e = torch.stack([torch.tensor(x) for x in is_e]).to(torch.float)[0]
+    is_ans = torch.stack([torch.tensor(x) for x in is_ans]).to(torch.float)[0]
+    frame_length = torch.stack([torch.tensor(x) for x in frame_length])[0]
 
     return clip_id, clip_features, query_features, is_s, is_e, is_ans

@@ -9,6 +9,7 @@ import wandb
 from torch.utils.tensorboard import SummaryWriter
 from torch.optim import SGD, Adam
 from tqdm import tqdm
+from transformers import pipeline
 
 from model.meme import MEME
 from model.meme_loss import MEME_LOSS
@@ -20,12 +21,8 @@ def parse_args():
     parser.add_argument(
         "-c", "--config-file", help="Config File with all the parameters", default='config.yaml'
     )
-    parser.add_argument(
-        "--max-ans-len", help="maximum length of answer clip", type=int, default=None
-    )
-    parser.add_argument(
-        "--force-cpu", help="enforce cpu computation", type=int, default=None
-    )
+    parser.add_argument("--max-len", help="maximum length of answer clip", type=int, default=None)
+    parser.add_argument("--force-cpu", help="enforce cpu computation", type=int, default=None)
 
     try:
         parsed_args = parser.parse_args()
@@ -73,13 +70,14 @@ def init_model(args):
     optimizer = SGD(model.parameters(), lr=args.learning_rate)
     #scheduler = ConstantLR(optimizer, factor=0.95,total_iters=args.num_epochs*args.num_batches)
     print("Finished initializing model")
+
     return model, model_loss, optimizer
 
-def infer_from_model(pred):
+def infer_from_model(pred, topk, qa_pipeline):
     start = pred[:, 0].cpu().numpy()
     end = pred[:, 1].cpu().numpy()
     max_len = args.max_len
-    s, e, scores = decode_candidate_clips(start, end, args.topk, max_len)
+    s, e, scores = decode_candidate_clips(qa_pipeline, start, end, topk, max_len)
     return s, e, scores
 
 def train(model, dataloader, model_loss, optimizer, args, writer, epoch):
@@ -91,8 +89,12 @@ def train(model, dataloader, model_loss, optimizer, args, writer, epoch):
             )
     iter = 0
     total_loss = 0
+    ns = 0
     for data in tqdm_obj:
         (clip_id, features, query_emb, starts, ends, is_ans) = data
+        if features[0] is None: # TODO
+            continue# TODO
+        ns += 1
         features = features.to(args.device)
         query_emb = query_emb.to(args.device)
         starts = starts.to(args.device)
@@ -116,11 +118,13 @@ def train(model, dataloader, model_loss, optimizer, args, writer, epoch):
         iter += 1
 
         # end train loop
+    print("Train Examples = ", ns)
 
     return total_loss
 
 def test(model, dataloader, model_loss, args, writer, epoch):
     model.eval()
+    qa_pipeline = pipeline("question-answering")
     tqdm_obj = tqdm(
                 dataloader,
                 total=len(dataloader),
@@ -129,8 +133,12 @@ def test(model, dataloader, model_loss, args, writer, epoch):
     iter = 0
     total_loss = 0
     records = []
+    ns = 0
     for i, data in enumerate(tqdm_obj):
         (clip_id, features, query_emb, starts, ends, is_ans) = data
+        if features[0] is None: # TODO
+            continue# TODO
+        ns+=1
         features = features.to(args.device)
         query_emb = query_emb.to(args.device)
         starts = starts.to(args.device)
@@ -143,8 +151,8 @@ def test(model, dataloader, model_loss, args, writer, epoch):
             loss = model_loss(pred, starts, ends, is_ans)
 
         # infer
-        s, e, scores = infer_from_model(pred)
-        records.append({"sample_id": i, "clip_id": clip_id,"start": s.cpu().numpy(), "end": e.cpu().numpy(), "score": scores.cpu().numpy()})
+        s, e, scores = infer_from_model(pred, args.topk, qa_pipeline)
+        records.append({"sample_id": int(i), "clip_id": str(clip_id),"start": list([int(x) for x in s]), "end": list([int(x) for x in e]), "score": list([float(x) for x in scores])})
 
         # Logging
         total_loss += loss.cpu().item()
@@ -153,6 +161,7 @@ def test(model, dataloader, model_loss, args, writer, epoch):
         iter += 1
 
         # end val loop
+    print("Test/Val Examples = ", ns)
     return total_loss, records
 
 def initialise_wandb(args,model):
@@ -182,4 +191,6 @@ if __name__ == "__main__":
 
         #evaluate
         #test if better results
-        test_loss = test(model, test_loader, model_loss, args)
+        test_loss, records = test(model, test_loader, model_loss, args, writer, epoch)
+        with open(f"output/records/records_test_{epoch}.json", "w") as f:
+            json.dump(records, f)

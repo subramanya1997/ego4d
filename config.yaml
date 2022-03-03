@@ -5,6 +5,7 @@ learning_rate: 0.001
 batch_size: 64
 force_cpu: false
 log_interval: 100
+topk: 5 
 
 
 
