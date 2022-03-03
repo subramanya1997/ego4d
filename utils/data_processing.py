@@ -88,14 +88,14 @@ class Ego4d_NLQ(Dataset):
                 self.video_feature_size = clip_feature.shape[-1]
                 self.query_feature_size = query_features.shape[-1]
             else:
-                _, clip_feature, query_features, _, _, _, _, _ = self[0]
+                _, clip_feature, query_features, _, _, _, _ = self[0]
                 self.video_feature_size = clip_feature[0].shape[-1]
                 self.query_feature_size = query_features[0].shape[-1]
         else:
             print('No Data Loaded!')
 
         for i in range(len(self.sample_query_map.keys())):
-            _, clip_feature, query_features, _, _, _, _, _ = self[i]
+            _, clip_feature, query_features, _, _, _, _ = self[i]
 
         print(self.ids_remove)
 
