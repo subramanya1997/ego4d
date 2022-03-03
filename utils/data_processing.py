@@ -15,6 +15,8 @@ from transformers import BertTokenizer, BertModel
 from utils.data_utils import get_nearest_frame, load_pickle, save_pickle
 from config import Config
 
+from collections import defaultdict
+
 class Ego4d_NLQ(Dataset):
     def __init__(self, annotations_path, features_path, split="train", wordEmbedding="bert", number_of_sample=None, numer_of_frames=500, save_or_load=False, update=False, save_or_load_path="./scratch/snagabhushan_umass_edu/dataset/v1/save/nlq/train.pkl"):
         """Class for reading and visualizing annotations.
@@ -42,6 +44,10 @@ class Ego4d_NLQ(Dataset):
                 self.query_feature_size = saved_data['query_feature_size']
                 self.sample_query_map = saved_data['sample_query_map']
                 self.numer_of_frames = saved_data['numer_of_frames']
+                self.idx_sample_query = saved_data['idx_sample_query']
+                for i in range(len(self.sample_query_map.keys())):
+                    _, clip_feature, query_features, _, _, _, _, _ = self[i]
+
                 return
 
         raw_data = self._load_json(annotations_path)
@@ -56,6 +62,8 @@ class Ego4d_NLQ(Dataset):
         self.sample_query_map = {}
         self.idx_sample_query = 0
         self.numer_of_frames = numer_of_frames
+
+        self.ids_remove = defaultdict(int)
         
         assert (
             type(raw_data) == dict
@@ -65,7 +73,8 @@ class Ego4d_NLQ(Dataset):
         self.all_clip_video_map.update(clip_video_map)
         self._process_frame_embeddings(raw_data, features_path)
 
-        print(f"#{self.split}: {self.idx_counter}")
+        print(f"#{self.split} frames: {self.idx_counter}")
+        print(f"#{self.split} clips: {self.idx_sample_query}")
 
         # get feature sizes
         if self.idx_counter != 0:
@@ -80,7 +89,12 @@ class Ego4d_NLQ(Dataset):
                 self.query_feature_size = query_features[0].shape[-1]
         else:
             print('No Data Loaded!')
-        
+
+        for i in range(len(self.sample_query_map.keys())):
+            _, clip_feature, query_features, _, _, _, _, _ = self[i]
+
+        print(self.ids_remove)
+
         if save_or_load or update:
             self.save_data(save_or_load_path)
 
@@ -116,9 +130,12 @@ class Ego4d_NLQ(Dataset):
         data = self.data[ s_idx : e_idx ]
         clip_path = data[0]['clip_path']
         clip_id = data[0]['clip_id']
-        clip_features = torch.load(clip_path)[ s_idx : e_idx , : ]
-        print(clip_features.shape, clip_features.shape[0], len(data), s_idx, e_idx)
-        assert (clip_features.shape[0] == len(data)) and len(list(set([x['clip_id'] for x in data]))) == 1
+        clip_features = torch.load(clip_path)
+        clip_features = clip_features[ s_idx : e_idx , : ]
+
+        if (clip_features.shape[0] != len(data)) and len(list(set([x['clip_id'] for x in data]))) != 1:
+            self.ids_remove[clip_id] += 1
+            print('Wrong')
 
         query_features = [item['query_features'] for item in data]
         is_s = [item['is_s_frame'] for item in data]
@@ -154,6 +171,7 @@ class Ego4d_NLQ(Dataset):
         saved_data['query_feature_size'] = self.query_feature_size
         saved_data['sample_query_map'] = self.sample_query_map
         saved_data['numer_of_frames'] = self.numer_of_frames
+        saved_data['idx_sample_query'] = self.idx_sample_query
 
         if not os.path.exists(path): #save create folder
             pass
@@ -230,7 +248,7 @@ class Ego4d_NLQ(Dataset):
             
         self.data = []
         for clp, data_item in tqdm(data.items(), total=len(data), desc=f"process episodic nlq {self.split}"):
-            
+
             if self.number_of_sample is not None:
                 if self.number_of_sample <= self.idx_sample_query:
                     break
@@ -261,6 +279,15 @@ class Ego4d_NLQ(Dataset):
                 if self.split == "train": #at test give the whole clip as input
                     s_frame = max(0, timestamp[0]-5)
                     e_frame = min(num_frames-1, timestamp[1]+5)
+
+                clip_features = torch.load(clip_path)
+                clip_features = clip_features[ s_frame : e_frame , : ]
+                
+                if (clip_features.shape[0] != (e_frame - s_frame)):
+                    continue
+
+                if (e_frame - s_frame) < 5:
+                    continue
 
                 if self.numer_of_frames is not None:
                     if self.numer_of_frames < (e_frame - s_frame):
