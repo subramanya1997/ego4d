@@ -342,7 +342,7 @@ def get_train_loader(dataset, batch_size):
         dataset=dataset,
         batch_size=batch_size,
         shuffle=True,
-        # collate_fn=train_collate_fn,
+        collate_fn=train_collate_fn,
     )
     return train_loader
 
@@ -357,9 +357,15 @@ def get_test_loader(dataset, batch_size):
 
 def train_collate_fn(batch):
     clip_id, clip_features, query_features, is_s, is_e, is_ans, frame_length = zip(*batch)
+    clip_id = [x for x in clip_id]
     clip_features = torch.stack(clip_features)
-    query_features = torch.stack(query_features)
 
-    print(is_s)
-    is_s = torch.stack(is_s)
-    return batch
+    #get only CLS embedding for query
+    query_features = [x[:,0,:] for x in query_features]
+    query_features = torch.cat(query_features, dim=0)
+    is_s = torch.stack([torch.tensor(x) for x in is_s]).to(torch.float)
+    is_e = torch.stack([torch.tensor(x) for x in is_e]).to(torch.float)
+    is_ans = torch.stack([torch.tensor(x) for x in is_ans]).to(torch.float)
+    frame_length = torch.stack([torch.tensor(x) for x in frame_length])
+
+    return clip_id, clip_features, query_features, is_s, is_e, is_ans

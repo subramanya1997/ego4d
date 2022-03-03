@@ -1,5 +1,4 @@
 import os
-import tqdm
 import json
 import yaml
 import argparse
@@ -9,6 +8,7 @@ import wandb
 
 from torch.utils.tensorboard import SummaryWriter
 from torch.optim import SGD, Adam
+from tqdm import tqdm
 
 from model.meme import MEME
 from model.meme_loss import MEME_LOSS
@@ -54,7 +54,7 @@ def get_dataloader(args):
     val_nlq = Ego4d_NLQ('/scratch/snagabhushan_umass_edu/dataset/v1/annotations/nlq_val.json', '/scratch/shantanuagar_umass_edu/ego4d/saved_clip_features/', split="val", wordEmbedding="bert", number_of_sample=1000, save_or_load=True, update=False, save_or_load_path="/scratch/snagabhushan_umass_edu/dataset/v1/save/nlq/val_25.pkl")
     test_nlq = Ego4d_NLQ('/scratch/snagabhushan_umass_edu/dataset/v1/annotations/nlq_val.json', '/scratch/shantanuagar_umass_edu/ego4d/saved_clip_features/', split="test", wordEmbedding="bert", number_of_sample=1000, save_or_load=True, update=False, save_or_load_path="/scratch/snagabhushan_umass_edu/dataset/v1/save/nlq/test_25.pkl")
 
-    train_loader = get_train_loader(train_nlq, batch_size=args.batch_size)
+    train_loader = get_train_loader(train_nlq, batch_size=1)
     val_loader = get_test_loader(val_nlq, batch_size=1)
     test_loader = get_test_loader(test_nlq, batch_size=1)
 
@@ -92,7 +92,7 @@ def train(model, dataloader, model_loss, optimizer, args, writer, epoch):
     iter = 0
     total_loss = 0
     for data in tqdm_obj:
-        (clip_id, features, query_emb, starts, ends, is_ans, _) = data
+        (clip_id, features, query_emb, starts, ends, is_ans) = data
         features = features.to(args.device)
         query_emb = query_emb.to(args.device)
         starts = starts.to(args.device)
@@ -129,8 +129,8 @@ def test(model, dataloader, model_loss, args, writer, epoch):
     iter = 0
     total_loss = 0
     records = []
-    for data in tqdm_obj:
-        (clip_id, features, query_emb, starts, ends, is_ans, _) = data
+    for i, data in enumerate(tqdm_obj):
+        (clip_id, features, query_emb, starts, ends, is_ans) = data
         features = features.to(args.device)
         query_emb = query_emb.to(args.device)
         starts = starts.to(args.device)
@@ -144,7 +144,7 @@ def test(model, dataloader, model_loss, args, writer, epoch):
 
         # infer
         s, e, scores = infer_from_model(pred)
-        records.append({"clip_id": clip_id, "start": s.cpu().numpy(), "end": e.cpu().numpy(), "score": scores.cpu().numpy()})
+        records.append({"sample_id": i, "clip_id": clip_id,"start": s.cpu().numpy(), "end": e.cpu().numpy(), "score": scores.cpu().numpy()})
 
         # Logging
         total_loss += loss.cpu().item()
@@ -173,8 +173,8 @@ if __name__ == "__main__":
     writer = SummaryWriter()
 
     for epoch in range(args.num_epochs):
-        train_loss = train(model, model_loss, optimizer, args)
-        val_loss, records = test(model, model_loss, args)
+        train_loss = train(model, train_loader, model_loss, optimizer, args, writer, epoch)
+        val_loss, records = test(model, val_loader, model_loss, args, writer, epoch)
         if not os.path.exists("output/records"):
             os.makedirs("output/records")
         with open(f"output/records/records_{epoch}.json", "w") as f:
@@ -182,4 +182,4 @@ if __name__ == "__main__":
 
         #evaluate
         #test if better results
-        test_loss = test(model, model_loss, args)
+        test_loss = test(model, test_loader, model_loss, args)

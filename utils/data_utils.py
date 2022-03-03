@@ -1,6 +1,9 @@
 import os
 import json
 import pickle
+import torch
+
+import numpy as np
 
 from tqdm import tqdm
 from config import Config
@@ -70,4 +73,23 @@ def pad_video_seq(sequences, max_length=None):
         else:
             seq_ = seq
         sequence_padded.append(seq_)
+    return sequence_padded, sequence_length
+
+def pad_2d_tensor_seq(sequences, pad_tok=None, max_length=None, max_length_2=None):
+    sequence_padded, sequence_length = [], []
+    if max_length is None:
+        max_length = max(map(lambda x: x.shape[0], sequences))
+    
+    sequence_length = list(map(lambda x: x.shape[1], sequences))
+    if max_length_2 is None:
+        max_length_2 = max(sequence_length)
+
+    for seq in sequences:
+        padding_length = max_length_2 - seq.shape[1]
+        padding_shape = [max_length, padding_length, seq.shape[2]]
+        padding_seq = torch.zeros(padding_shape).to(seq)
+        seq_ = torch.cat([seq, padding_seq], dim=1)
+        sequence_padded.append(seq_)
+    
+    sequence_padded = torch.cat(sequence_padded, dim=0)
     return sequence_padded, sequence_length
