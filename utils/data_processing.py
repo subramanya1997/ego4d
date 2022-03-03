@@ -47,6 +47,9 @@ class Ego4d_NLQ(Dataset):
                 self.idx_sample_query = saved_data['idx_sample_query']
                 for i in range(len(self.sample_query_map.keys())):
                     _, clip_feature, query_features, _, _, _, _, _ = self[i]
+                
+                print(f"#{self.split} frames: {self.idx_counter}")
+                print(f"#{self.split} clips: {self.idx_sample_query}")
 
                 return
 
