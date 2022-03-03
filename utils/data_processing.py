@@ -294,7 +294,7 @@ class Ego4d_NLQ(Dataset):
                 if (clip_features.shape[0] != (e_frame - s_frame)):
                     continue
 
-                if (e_frame - s_frame) < 5:
+                if (timestamp[1] - timestamp[0]) < 5:
                     continue
 
                 if self.numer_of_frames is not None:
