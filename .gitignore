@@ -120,5 +120,9 @@ dmypy.json
 dataset/
 data/
 
+# misc
+output/
+runs/
+
 # VS Code debugger
 .vscode

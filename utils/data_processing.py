@@ -1,6 +1,7 @@
 #import libs
 import json
 import os
+from pydoc import cli
 from tqdm import tqdm
 import math
 
@@ -350,7 +351,7 @@ def get_train_loader(dataset, batch_size):
         dataset=dataset,
         batch_size=batch_size,
         shuffle=True,
-        # collate_fn=train_collate_fn,
+        collate_fn=train_collate_fn,
     )
     return train_loader
 
@@ -359,15 +360,26 @@ def get_test_loader(dataset, batch_size):
         dataset=dataset,
         batch_size=batch_size,
         shuffle=False,
-        # collate_fn=test_collate_fn,
+        collate_fn=train_collate_fn,
     )
     return test_loader
 
 def train_collate_fn(batch):
     clip_id, clip_features, query_features, is_s, is_e, is_ans, frame_length = zip(*batch)
-    clip_features = torch.stack(clip_features)
-    query_features = torch.stack(query_features)
+    if clip_features[0] is None: #TODO
+        return clip_id, clip_features, query_features, is_s, is_e, is_ans #TODO
 
-    print(is_s)
-    is_s = torch.stack(is_s)
-    return batch
+    clip_id = [x for x in clip_id]
+    assert len(clip_features) == 1
+    clip_features = [x.squeeze(0) for x in clip_features]
+    clip_features = clip_features[0]
+
+    #get only CLS embedding for query
+    query_features = [x[:,0,:] for x in query_features[0]]
+    query_features = torch.cat(query_features, dim=0)
+    is_s = torch.stack([torch.tensor(x) for x in is_s]).to(torch.float)[0]
+    is_e = torch.stack([torch.tensor(x) for x in is_e]).to(torch.float)[0]
+    is_ans = torch.stack([torch.tensor(x) for x in is_ans]).to(torch.float)[0]
+    frame_length = torch.stack([torch.tensor(x) for x in frame_length])[0]
+
+    return clip_id, clip_features, query_features, is_s, is_e, is_ans

@@ -16,4 +16,5 @@ class MEME(nn.Module):
         
     def forward(self, x):
         output = self.model(x)
+        output = F.softmax(output, dim=0)
         return output

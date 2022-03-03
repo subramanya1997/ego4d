@@ -6,8 +6,8 @@ class MEME_LOSS(nn.Module):
         super(MEME_LOSS, self).__init__()
         self.loss_fn = nn.BCELoss()
         
-    def forward(self, pred, target_start, target_end):
-        output = self.em_joint_loss(pred, target_start, target_end)
+    def forward(self, pred, target_start, target_end, target_in_range):
+        output = self.em_joint_loss(pred, target_start, target_end, target_in_range)
         return output
 
     def em_joint_loss(self, pred, target_start, target_end, target_in_range):
