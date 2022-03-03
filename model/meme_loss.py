@@ -17,8 +17,7 @@ class MEME_LOSS(nn.Module):
         target_start: (batch_size,)
         target_end: (batch_size,)
         """
-        loss = 1/3 * self.loss_fn(pred[:, 0], target_start) + \
-                1/3 * self.loss_fn(pred[:, 1], target_end) + \
-                1/3 * self.loss_fn(pred[:, 2], target_in_range)
+        loss = 0.5 * self.loss_fn(pred[:, 0], target_start) + \
+                0.5 * self.loss_fn(pred[:, 1], target_end)
 
         return torch.mean(loss)

@@ -46,8 +46,8 @@ class Ego4d_NLQ(Dataset):
                 self.sample_query_map = saved_data['sample_query_map']
                 self.numer_of_frames = saved_data['numer_of_frames']
                 self.idx_sample_query = saved_data['idx_sample_query']
-                for i in range(len(self.sample_query_map.keys())):
-                    _, clip_feature, query_features, _, _, _, _, = self[i]
+                # for i in range(len(self.sample_query_map.keys())):
+                #     _, clip_feature, query_features, _, _, _, _, = self[i]
                 
                 print(f"#{self.split} frames: {self.idx_counter}")
                 print(f"#{self.split} clips: {self.idx_sample_query}")
@@ -137,9 +137,12 @@ class Ego4d_NLQ(Dataset):
         clip_id = data[0]['clip_id']
         clip_features = torch.load(clip_path)
         
-        print(clip_features.shape, s_idx, e_idx)
+        # print(clip_features.shape, s_idx, e_idx)
         
         clip_features = clip_features[ s_idx : e_idx , : ]
+
+        if clip_id == '8d3f5b12-ac2c-4315-80ed-bb827aa91bd4':
+            return None, None, None, None, None, None, None
         
         if (clip_features.shape[0] != len(data)) and len(list(set([x['clip_id'] for x in data]))) != 1:
             self.ids_remove[clip_id] += 1
@@ -154,7 +157,18 @@ class Ego4d_NLQ(Dataset):
 
 
     def getfromidx(self, idx):
-        pass
+        sample_map = self.sample_query_map[idx]
+        frame = self.data[sample_map["range"][0]]
+        values = {
+            "annotation_uid": sample_map["annotation_uid"],
+            "clip_id": sample_map["clip_id"],
+            "query_idx": sample_map["query_idx"],
+            "query": frame["query"],
+            "s_time": frame["exact_s_time"],
+            "e_time": frame["exact_e_time"],
+
+        }
+        return values
 
     def get_query_sample(self, idx):
         '''
@@ -341,7 +355,7 @@ class Ego4d_NLQ(Dataset):
                     "annotation_uid": ann_uid,
                     "query_idx": query_idx,
                     "range" : ( _s_index_query, self.idx_counter ),
-                    "clip_range": ( timestamp[0],  timestamp[1])  
+                    "clip_range": ( s_frame,  e_frame+1)  
                 }
                 self.idx_sample_query += 1
 
