@@ -69,7 +69,7 @@ class Ego4d_NLQ(Dataset):
 
         # get feature sizes
         if self.idx_counter != 0:
-            _, _, _,clip_feature, query_features, _, _, _, _, _ = self[0]
+            _, _,clip_feature, query_features, _, _, _, _, _ = self[0]
             self.video_feature_size = clip_feature.shape[-1]
             self.query_feature_size = query_features.shape[-1]
         else:
@@ -93,11 +93,10 @@ class Ego4d_NLQ(Dataset):
             is_e = self.data[idx]['is_e_frame']
             is_ans = self.data[idx]['is_within_range']
             frame_length = self.data[idx]['frame_length']
-            return clip_id, clip_feature, query_features, is_s, is_e, is_ans, frame_length
+            sample_query_idx = self.data[idx]['sample_query_idx']
+            return clip_id, clip_feature, query_features, is_s, is_e, is_ans, frame_length, sample_query_idx
         
         return self.get_test_query(idx)
-
-        
     
     def get_test_query(self,idx):
         sample_query = self.sample_query_map[idx]
@@ -115,6 +114,10 @@ class Ego4d_NLQ(Dataset):
         is_ans = [item['is_within_range'] for item in data]
         frame_length = [item['frame_length'] for item in data]
         return clip_id, clip_features, query_features, is_s, is_e, is_ans, frame_length
+
+
+    def getfromidx(self, idx):
+        pass
 
     def get_query_sample(self, idx):
         '''
