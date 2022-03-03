@@ -11,3 +11,32 @@ def decode_candidate_clips(start, end, topk = 1, max_len = None):
     return s, e, scores
 
 
+# def eval_test(
+#     result_save_path=None,
+#     gt_json_path=None,
+#     epoch=None,
+#     global_step=None,
+# ):
+#     # Save predictions if path is provided.
+#     if result_save_path:
+#         with open(result_save_path, "w") as file_id:
+#             json.dump(predictions, file_id)
+
+#     # Evaluate if ground truth JSON file is provided.
+#     if gt_json_path:
+#         with open(gt_json_path) as file_id:
+#             ground_truth = json.load(file_id)
+#         thresholds = [0.3, 0.5, 0.01]
+#         topK = [1, 3, 5]
+#         results, mIoU = ego4d_eval.evaluate_nlq_performance(
+#             predictions, ground_truth, thresholds, topK
+#         )
+#         title = f"Epoch {epoch}, Step {global_step}"
+#         score_str = ego4d_eval.display_results(
+#             results, mIoU, thresholds, topK, title=title
+#         )
+#     else:
+#         results = None
+#         mIoU = None
+#         score_str = None
+#     return results, mIoU, score_str

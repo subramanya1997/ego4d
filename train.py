@@ -5,9 +5,10 @@ import yaml
 import argparse
 
 import torch
+import wandb
 
 from torch.utils.tensorboard import SummaryWriter
-from torch.optim import Adam
+from torch.optim import SGD, Adam
 
 from model.meme import MEME
 from model.meme_loss import MEME_LOSS
@@ -17,7 +18,7 @@ from utils.data_processing import Ego4d_NLQ, get_train_loader, get_test_loader
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "-c", "--config-file", help="Config File with all the parameters", required=True
+        "-c", "--config-file", help="Config File with all the parameters", default='config.yaml'
     )
     parser.add_argument(
         "--max-ans-len", help="maximum length of answer clip", type=int, default=None
@@ -38,44 +39,48 @@ def parse_args():
         config = yaml.safe_load(f)
     for key, value in config.items():
         if key not in parsed_args.__dict__ or parsed_args.__dict__[key] is None:
-            parsed_args.key = value
+            parsed_args.__dict__[key] = value
     
     if not parsed_args.force_cpu:
         parsed_args.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    print("Parsed Arguments are - ", parse_args)
+    print("Parsed Arguments are - ", parsed_args)
 
     return parsed_args
 
 def get_dataloader(args):
-    train_nql = Ego4d_NLQ('/scratch/snagabhushan_umass_edu/dataset/v1/annotations/nlq_train.json', '/scratch/shantanuagar_umass_edu/ego4d/saved_clip_features/', split="train", wordEmbedding="bert", number_of_sample=1000, save_or_load=True, update=False, save_or_load_path="/scratch/snagabhushan_umass_edu/dataset/v1/save/nlq/train.pkl")
-    val_nql = Ego4d_NLQ('/scratch/snagabhushan_umass_edu/dataset/v1/annotations/nlq_val.json', '/scratch/shantanuagar_umass_edu/ego4d/saved_clip_features/', split="val", wordEmbedding="bert", number_of_sample=1000, save_or_load=False, update=False, save_or_load_path="/scratch/snagabhushan_umass_edu/dataset/v1/save/nlq/val.pkl")
+    print("Loading data")
+    train_nlq = Ego4d_NLQ('/scratch/snagabhushan_umass_edu/dataset/v1/annotations/nlq_train.json', '/scratch/shantanuagar_umass_edu/ego4d/saved_clip_features/', split="train", wordEmbedding="bert", number_of_sample=1000, save_or_load=True, update=False, save_or_load_path="/scratch/snagabhushan_umass_edu/dataset/v1/save/nlq/train_50.pkl")
+    val_nlq = Ego4d_NLQ('/scratch/snagabhushan_umass_edu/dataset/v1/annotations/nlq_val.json', '/scratch/shantanuagar_umass_edu/ego4d/saved_clip_features/', split="val", wordEmbedding="bert", number_of_sample=1000, save_or_load=True, update=False, save_or_load_path="/scratch/snagabhushan_umass_edu/dataset/v1/save/nlq/val_25.pkl")
+    test_nlq = Ego4d_NLQ('/scratch/snagabhushan_umass_edu/dataset/v1/annotations/nlq_val.json', '/scratch/shantanuagar_umass_edu/ego4d/saved_clip_features/', split="test", wordEmbedding="bert", number_of_sample=1000, save_or_load=True, update=False, save_or_load_path="/scratch/snagabhushan_umass_edu/dataset/v1/save/nlq/test_25.pkl")
 
-    train_loader = get_train_loader(train_nql, batch_size=1)
-    val_loader = get_test_loader(val_nql, batch_size=1)
-    test_loader = []
+    train_loader = get_train_loader(train_nlq, batch_size=args.batch_size)
+    val_loader = get_test_loader(val_nlq, batch_size=1)
+    test_loader = get_test_loader(test_nlq, batch_size=1)
 
-    video_feature_size, query_feature_size = train_nql.video_feature_size, train_nql.query_feature_size
-
+    video_feature_size, query_feature_size = 2304, 768# train_nlq.video_feature_size, train_nlq.query_feature_size TODO
+    print("Finished loading data")
     return train_loader, val_loader, test_loader, video_feature_size, query_feature_size
 
 def init_model(args):
+    print("Initializing model")
     model = MEME(args)
     model.to(args.device)
 
     model_loss = MEME_LOSS(args)
     model_loss.to(args.device)
 
-    optimizer = Adam(model.parameters(), lr=args.learning_rate)
+    optimizer = SGD(model.parameters(), lr=args.learning_rate)
     #scheduler = ConstantLR(optimizer, factor=0.95,total_iters=args.num_epochs*args.num_batches)
-    
+    print("Finished initializing model")
     return model, model_loss, optimizer
 
 def infer_from_model(pred):
     start = pred[:, 0].cpu().numpy()
     end = pred[:, 1].cpu().numpy()
     max_len = args.max_len
-    return decode_candidate_clips(start, end, args.topk, max_len)
+    s, e, scores = decode_candidate_clips(start, end, args.topk, max_len)
+    return s, e, scores
 
 def train(model, dataloader, model_loss, optimizer, args, writer, epoch):
     model.train()
@@ -87,15 +92,16 @@ def train(model, dataloader, model_loss, optimizer, args, writer, epoch):
     iter = 0
     total_loss = 0
     for data in tqdm_obj:
-        (clip_id, features, query_emb, starts, ends, query) = data
+        (clip_id, features, query_emb, starts, ends, is_ans, _) = data
         features = features.to(args.device)
         query_emb = query_emb.to(args.device)
         starts = starts.to(args.device)
         ends = ends.to(args.device)
-        query = query.to(args.device)
+        is_ans = is_ans.to(args.device)
 
-        pred = model(features, query_emb)
-        loss = model_loss(pred, starts, ends)
+        input_features = torch.cat((features, query_emb), dim=1)
+        pred = model(input_features)
+        loss = model_loss(pred, starts, ends, is_ans)
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
@@ -104,14 +110,16 @@ def train(model, dataloader, model_loss, optimizer, args, writer, epoch):
         # Logging
         total_loss += loss.detach().cpu().item()
         n_iter = epoch * len(dataloader) + iter
-        writer.add_scalar('Loss/train', loss.detach().cpu().item(), n_iter)
+        if n_iter % args.log_interval == 0:
+            writer.add_scalar('Loss/train', loss.detach().cpu().item(), n_iter)
+            # wandb.log({"loss": loss.detach().cpu().item()}, step=n_iter)
         iter += 1
 
         # end train loop
 
     return total_loss
 
-def validate(model, dataloader, model_loss, args, writer, epoch):
+def test(model, dataloader, model_loss, args, writer, epoch):
     model.eval()
     tqdm_obj = tqdm(
                 dataloader,
@@ -120,16 +128,23 @@ def validate(model, dataloader, model_loss, args, writer, epoch):
             )
     iter = 0
     total_loss = 0
+    records = []
     for data in tqdm_obj:
-        (clip_id, features, starts, ends, query) = data
+        (clip_id, features, query_emb, starts, ends, is_ans, _) = data
         features = features.to(args.device)
+        query_emb = query_emb.to(args.device)
         starts = starts.to(args.device)
         ends = ends.to(args.device)
-        query = query.to(args.device)
+        is_ans = is_ans.to(args.device)
 
         with torch.no_grad():
-            pred = model(features)
-            loss = model_loss(pred, starts, ends)
+            input_features = torch.cat((features, query_emb), dim=1)
+            pred = model(input_features)
+            loss = model_loss(pred, starts, ends, is_ans)
+
+        # infer
+        s, e, scores = infer_from_model(pred)
+        records.append({"clip_id": clip_id, "start": s.cpu().numpy(), "end": e.cpu().numpy(), "score": scores.cpu().numpy()})
 
         # Logging
         total_loss += loss.cpu().item()
@@ -138,47 +153,33 @@ def validate(model, dataloader, model_loss, args, writer, epoch):
         iter += 1
 
         # end val loop
-    return total_loss
+    return total_loss, records
 
-def test(model, dataloader, model_loss, args, writer):
-    model.eval()
-    tqdm_obj = tqdm(
-                dataloader,
-                total=len(dataloader),
-                desc="Epoch %3d / %3d" % (epoch + 1, args.num_epochs),
-            )
-    iter = 0
-    total_loss = 0
-    for data in tqdm_obj:
-        (clip_id, features, starts, ends, query) = data
-        features = features.to(args.device)
-        starts = starts.to(args.device)
-        ends = ends.to(args.device)
-        query = query.to(args.device)
-
-        with torch.no_grad():
-            pred = model(features)
-            loss = model_loss(pred, starts, ends)
-
-        # Logging
-        total_loss += loss.cpu().item()
-        n_iter = epoch * len(dataloader) + iter
-        writer.add_scalar('Loss/test', loss.cpu().item(), n_iter)
-        iter += 1
-
-        # end test loop
-    return total_loss
+def initialise_wandb(args,model):
+    wandb.init(project="ego4d", config={
+        "learning_rate": args.learning_rate,
+        "batch_size": args.batch_size,
+        "num_epochs": args.num_epochs,
+        "hidden_size": args.hidden_size
+    })
+    wandb.watch(model)
 
 if __name__ == "__main__":
     args = parse_args()
     train_loader, val_loader, test_loader, video_feature_size, query_feature_size = get_dataloader(args)
     args.embedding_dim = video_feature_size + query_feature_size
     model, model_loss, optimizer = init_model(args)
+    # initialise_wandb(args,model)
     writer = SummaryWriter()
 
     for epoch in range(args.num_epochs):
         train_loss = train(model, model_loss, optimizer, args)
-        val_loss = validate(model, model_loss, args)
+        val_loss, records = test(model, model_loss, args)
+        if not os.path.exists("output/records"):
+            os.makedirs("output/records")
+        with open(f"output/records/records_{epoch}.json", "w") as f:
+            json.dump(records, f)
+
         #evaluate
         #test if better results
         test_loss = test(model, model_loss, args)
