@@ -137,9 +137,9 @@ class Ego4d_NLQ(Dataset):
         clip_id = data[0]['clip_id']
         clip_features = torch.load(clip_path)
         
-        print(clip_features.shape, s_idx, e_idx)
-        
         clip_features = clip_features[ s_idx : e_idx , : ]
+
+        print(clip_features.shape, s_idx, e_idx, len(data))
         
         if (clip_features.shape[0] != len(data)) and len(list(set([x['clip_id'] for x in data]))) != 1:
             self.ids_remove[clip_id] += 1
@@ -148,6 +148,7 @@ class Ego4d_NLQ(Dataset):
         query_features = [item['query_features'] for item in data]
         is_s = [item['is_s_frame'] for item in data]
         is_e = [item['is_e_frame'] for item in data]
+
         is_ans = [item['is_within_range'] for item in data]
         frame_length = [item['frame_length'] for item in data]
         return clip_id, clip_features, query_features, is_s, is_e, is_ans, frame_length
@@ -289,7 +290,7 @@ class Ego4d_NLQ(Dataset):
                     e_frame = min(num_frames-1, timestamp[1]+5)
 
                 clip_features = torch.load(clip_path)
-                clip_features = clip_features[ s_frame : e_frame , : ]
+                clip_features = clip_features[ s_frame : e_frame+1 , : ]
                 
                 if (clip_features.shape[0] != (e_frame - s_frame)):
                     continue
@@ -341,7 +342,7 @@ class Ego4d_NLQ(Dataset):
                     "annotation_uid": ann_uid,
                     "query_idx": query_idx,
                     "range" : ( _s_index_query, self.idx_counter ),
-                    "clip_range": ( timestamp[0],  timestamp[1])  
+                    "clip_range": (s_frame,  e_frame+1)  
                 }
                 self.idx_sample_query += 1
 
