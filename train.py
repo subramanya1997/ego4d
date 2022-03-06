@@ -6,6 +6,8 @@ import argparse
 import torch
 import wandb
 
+import numpy as np
+
 from torch.utils.tensorboard import SummaryWriter
 from torch.optim import SGD, Adam
 from tqdm import tqdm
@@ -94,6 +96,7 @@ def train(model, dataloader, model_loss, optimizer, args, writer, epoch):
         (clip_id, features, query_emb, starts, ends, is_ans) = data
         if features[0] is None: # TODO
             continue# TODO
+        # print(clip_id, features.shape, query_emb.shape, starts.shape, ends.shape, is_ans.shape)
         ns += 1
         features = features.to(args.device)
         query_emb = query_emb.to(args.device)
@@ -112,8 +115,8 @@ def train(model, dataloader, model_loss, optimizer, args, writer, epoch):
         # Logging
         total_loss += loss.detach().cpu().item()
         n_iter = epoch * len(dataloader) + iter
-        if n_iter % args.log_interval == 0:
-            writer.add_scalar('Loss/train', loss.detach().cpu().item(), n_iter)
+        # if n_iter % args.log_interval == 0:
+        writer.add_scalar('Loss/train', loss.detach().cpu().item(), n_iter)
             # wandb.log({"loss": loss.detach().cpu().item()}, step=n_iter)
         iter += 1
 
@@ -152,7 +155,14 @@ def test(model, dataloader, model_loss, args, writer, epoch):
 
         # infer
         s, e, scores = infer_from_model(pred, args.topk, qa_pipeline)
-        records.append({"sample_id": int(i), "clip_id": str(clip_id),"start": list([int(x) for x in s]), "end": list([int(x) for x in e]), "score": list([float(x) for x in scores])})
+        records.append({"sample_id": int(i), 
+                        "clip_id": str(clip_id),
+                        "start": list([int(x) for x in s]), 
+                        "end": list([int(x) for x in e]), 
+                        "score": list([float(x) for x in scores]),
+                        "GT_starts": int(np.where(starts.cpu().numpy() == 1)[0][0]),
+                        "GT_ends": int(np.where(ends.cpu().numpy() == 1)[0][0]),
+                        "Loss": float(loss.cpu().item())})
 
         # Logging
         total_loss += loss.cpu().item()
@@ -187,10 +197,10 @@ if __name__ == "__main__":
         if not os.path.exists("output/records"):
             os.makedirs("output/records")
         with open(f"output/records/records_{epoch}.json", "w") as f:
-            json.dump(records, f)
+            json.dump(records, f, indent=4)
 
         #evaluate
         #test if better results
         test_loss, records = test(model, test_loader, model_loss, args, writer, epoch)
         with open(f"output/records/records_test_{epoch}.json", "w") as f:
-            json.dump(records, f)
+            json.dump(records, f, indent=4)

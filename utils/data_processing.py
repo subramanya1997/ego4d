@@ -19,7 +19,7 @@ from config import Config
 from collections import defaultdict
 
 class Ego4d_NLQ(Dataset):
-    def __init__(self, annotations_path, features_path, split="train", wordEmbedding="bert", number_of_sample=None, numer_of_frames=500, save_or_load=False, update=False, save_or_load_path="./scratch/snagabhushan_umass_edu/dataset/v1/save/nlq/train.pkl"):
+    def __init__(self, annotations_path, features_path=None, split="train", wordEmbedding="bert", number_of_sample=None, numer_of_frames=500, save_or_load=False, update=False, save_or_load_path="./scratch/snagabhushan_umass_edu/dataset/v1/save/nlq/train.pkl", filter_vids = None):
         """Class for reading and visualizing annotations.
         Args:
             annotations_path (str): location of annotation file
@@ -46,8 +46,8 @@ class Ego4d_NLQ(Dataset):
                 self.sample_query_map = saved_data['sample_query_map']
                 self.numer_of_frames = saved_data['numer_of_frames']
                 self.idx_sample_query = saved_data['idx_sample_query']
-                for i in range(len(self.sample_query_map.keys())):
-                    _, clip_feature, query_features, _, _, _, _, = self[i]
+                # for i in range(len(self.sample_query_map.keys())):
+                #     _, clip_feature, query_features, _, _, _, _, = self[i]
                 
                 print(f"#{self.split} frames: {self.idx_counter}")
                 print(f"#{self.split} clips: {self.idx_sample_query}")
@@ -61,6 +61,7 @@ class Ego4d_NLQ(Dataset):
         self.split = split
         self.wordEmbedding = wordEmbedding
         self.number_of_sample = number_of_sample
+        self.filter_vids = filter_vids
         
         self.idx_counter = 0
         self.sample_query_map = {}
@@ -74,8 +75,10 @@ class Ego4d_NLQ(Dataset):
         ), "Annotation file format {} not supported.".format(type(raw_data))
         
         raw_data, clip_video_map = self._reformat_data(raw_data)
+        self.raw_data_formatted = raw_data
         self.all_clip_video_map.update(clip_video_map)
-        self._process_frame_embeddings(raw_data, features_path)
+        if(features_path != None):
+            self._process_frame_embeddings(raw_data, features_path)
 
         print(f"#{self.split} frames: {self.idx_counter}")
         print(f"#{self.split} clips: {self.idx_sample_query}")
@@ -137,9 +140,18 @@ class Ego4d_NLQ(Dataset):
         clip_id = data[0]['clip_id']
         clip_features = torch.load(clip_path)
         
+<<<<<<< HEAD
         clip_features = clip_features[ s_idx : e_idx , : ]
 
         print(clip_features.shape, s_idx, e_idx, len(data))
+=======
+        # print(clip_features.shape, s_idx, e_idx)
+        
+        clip_features = clip_features[ s_idx : e_idx , : ]
+
+        if clip_id == '8d3f5b12-ac2c-4315-80ed-bb827aa91bd4':
+            return None, None, None, None, None, None, None
+>>>>>>> 9b07310ad8cc6daaf9f77f7ede5f08418ca5a69f
         
         if (clip_features.shape[0] != len(data)) and len(list(set([x['clip_id'] for x in data]))) != 1:
             self.ids_remove[clip_id] += 1
@@ -155,7 +167,18 @@ class Ego4d_NLQ(Dataset):
 
 
     def getfromidx(self, idx):
-        pass
+        sample_map = self.sample_query_map[idx]
+        frame = self.data[sample_map["range"][0]]
+        values = {
+            "annotation_uid": sample_map["annotation_uid"],
+            "clip_id": sample_map["clip_id"],
+            "query_idx": sample_map["query_idx"],
+            "query": frame["query"],
+            "s_time": frame["exact_s_time"],
+            "e_time": frame["exact_e_time"],
+
+        }
+        return values
 
     def get_query_sample(self, idx):
         '''
@@ -206,6 +229,8 @@ class Ego4d_NLQ(Dataset):
         formatted_data = {}
         clip_video_map = {}
         for video_datum in split_data["videos"]:
+            if self.filter_vids is not None and video_datum["video_uid"] not in self.filter_vids:
+                continue
             for clip_datum in video_datum["clips"]:
                 clip_uid = clip_datum["clip_uid"]
                 clip_video_map[clip_uid] = (
@@ -221,6 +246,7 @@ class Ego4d_NLQ(Dataset):
                     "timestamps": [],
                     "exact_times": [],
                     "sentences": [],
+                    "query_templates": [],
                     "annotation_uids": [],
                     "query_idx": [],
                 }
@@ -235,6 +261,7 @@ class Ego4d_NLQ(Dataset):
                         if "query" not in datum or not datum["query"]:
                             continue
                         new_dict["sentences"].append(self._process_question(datum["query"]))
+                        new_dict["query_templates"].append(datum["template"])
                         new_dict["annotation_uids"].append(ann_datum["annotation_uid"])
                         new_dict["query_idx"].append(index)
                         new_dict["exact_times"].append([start_time, end_time]),
@@ -342,7 +369,11 @@ class Ego4d_NLQ(Dataset):
                     "annotation_uid": ann_uid,
                     "query_idx": query_idx,
                     "range" : ( _s_index_query, self.idx_counter ),
+<<<<<<< HEAD
                     "clip_range": (s_frame,  e_frame+1)  
+=======
+                    "clip_range": ( s_frame,  e_frame+1)  
+>>>>>>> 9b07310ad8cc6daaf9f77f7ede5f08418ca5a69f
                 }
                 self.idx_sample_query += 1
 
