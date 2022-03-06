@@ -19,7 +19,7 @@ from config import Config
 from collections import defaultdict
 
 class Ego4d_NLQ(Dataset):
-    def __init__(self, annotations_path, features_path, split="train", wordEmbedding="bert", number_of_sample=None, numer_of_frames=500, save_or_load=False, update=False, save_or_load_path="./scratch/snagabhushan_umass_edu/dataset/v1/save/nlq/train.pkl"):
+    def __init__(self, annotations_path, features_path=None, split="train", wordEmbedding="bert", number_of_sample=None, numer_of_frames=500, save_or_load=False, update=False, save_or_load_path="./scratch/snagabhushan_umass_edu/dataset/v1/save/nlq/train.pkl"):
         """Class for reading and visualizing annotations.
         Args:
             annotations_path (str): location of annotation file
@@ -74,8 +74,10 @@ class Ego4d_NLQ(Dataset):
         ), "Annotation file format {} not supported.".format(type(raw_data))
         
         raw_data, clip_video_map = self._reformat_data(raw_data)
+        self.raw_data_formatted = raw_data
         self.all_clip_video_map.update(clip_video_map)
-        self._process_frame_embeddings(raw_data, features_path)
+        if(features_path != None):
+            self._process_frame_embeddings(raw_data, features_path)
 
         print(f"#{self.split} frames: {self.idx_counter}")
         print(f"#{self.split} clips: {self.idx_sample_query}")
@@ -220,6 +222,7 @@ class Ego4d_NLQ(Dataset):
                     "timestamps": [],
                     "exact_times": [],
                     "sentences": [],
+                    "query_templates": [],
                     "annotation_uids": [],
                     "query_idx": [],
                 }
@@ -234,6 +237,7 @@ class Ego4d_NLQ(Dataset):
                         if "query" not in datum or not datum["query"]:
                             continue
                         new_dict["sentences"].append(self._process_question(datum["query"]))
+                        new_dict["query_templates"].append(datum["template"])
                         new_dict["annotation_uids"].append(ann_datum["annotation_uid"])
                         new_dict["query_idx"].append(index)
                         new_dict["exact_times"].append([start_time, end_time]),
