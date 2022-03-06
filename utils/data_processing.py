@@ -19,7 +19,7 @@ from config import Config
 from collections import defaultdict
 
 class Ego4d_NLQ(Dataset):
-    def __init__(self, annotations_path, features_path=None, split="train", wordEmbedding="bert", number_of_sample=None, numer_of_frames=500, save_or_load=False, update=False, save_or_load_path="./scratch/snagabhushan_umass_edu/dataset/v1/save/nlq/train.pkl"):
+    def __init__(self, annotations_path, features_path=None, split="train", wordEmbedding="bert", number_of_sample=None, numer_of_frames=500, save_or_load=False, update=False, save_or_load_path="./scratch/snagabhushan_umass_edu/dataset/v1/save/nlq/train.pkl", filter_vids = None):
         """Class for reading and visualizing annotations.
         Args:
             annotations_path (str): location of annotation file
@@ -61,6 +61,7 @@ class Ego4d_NLQ(Dataset):
         self.split = split
         self.wordEmbedding = wordEmbedding
         self.number_of_sample = number_of_sample
+        self.filter_vids = filter_vids
         
         self.idx_counter = 0
         self.sample_query_map = {}
@@ -221,6 +222,8 @@ class Ego4d_NLQ(Dataset):
         formatted_data = {}
         clip_video_map = {}
         for video_datum in split_data["videos"]:
+            if self.filter_vids is not None and video_datum["video_uid"] not in self.filter_vids:
+                continue
             for clip_datum in video_datum["clips"]:
                 clip_uid = clip_datum["clip_uid"]
                 clip_video_map[clip_uid] = (
