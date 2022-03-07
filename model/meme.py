@@ -39,9 +39,9 @@ class MEME(nn.Module):
         start_output = self.start_head(output)
         end_output = self.end_head(output)
         ans_output = self.ans_head(output)
-        start_output = F.softmax(start_output, dim=0)
-        end_output = F.softmax(end_output, dim=0)
-        ans_output = F.softmax(ans_output, dim=0)
+        start_output = F.softmax(start_output, dim=1)
+        end_output = F.softmax(end_output, dim=1)
+        ans_output = F.softmax(ans_output, dim=1)
 
-        output = torch.cat((start_output, end_output, ans_output), dim=1)
+        output = torch.cat((start_output, end_output, ans_output), dim=-1)
         return output

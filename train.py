@@ -25,6 +25,7 @@ def parse_args():
     )
     parser.add_argument("--max-len", help="maximum length of answer clip", type=int, default=None)
     parser.add_argument("--force-cpu", help="enforce cpu computation", type=int, default=None)
+    parser.add_argument("-r", "--record-path", help="path for saving records", type=str, default='output/records/')
 
     try:
         parsed_args = parser.parse_args()
@@ -49,9 +50,9 @@ def parse_args():
 
 def get_dataloader(args):
     print("Loading data")
-    train_nlq = Ego4d_NLQ('/scratch/snagabhushan_umass_edu/dataset/v1/annotations/nlq_train.json', '/scratch/shantanuagar_umass_edu/ego4d/saved_clip_features/', split="train", wordEmbedding="bert", number_of_sample=1000, save_or_load=True, update=False, save_or_load_path="/scratch/snagabhushan_umass_edu/dataset/v1/save/nlq/train_50.pkl")
-    val_nlq = Ego4d_NLQ('/scratch/snagabhushan_umass_edu/dataset/v1/annotations/nlq_val.json', '/scratch/shantanuagar_umass_edu/ego4d/saved_clip_features/', split="val", wordEmbedding="bert", number_of_sample=1000, save_or_load=True, update=False, save_or_load_path="/scratch/snagabhushan_umass_edu/dataset/v1/save/nlq/val_25.pkl")
-    test_nlq = Ego4d_NLQ('/scratch/snagabhushan_umass_edu/dataset/v1/annotations/nlq_val.json', '/scratch/shantanuagar_umass_edu/ego4d/saved_clip_features/', split="test", wordEmbedding="bert", number_of_sample=1000, save_or_load=True, update=False, save_or_load_path="/scratch/snagabhushan_umass_edu/dataset/v1/save/nlq/test_25.pkl")
+    train_nlq = Ego4d_NLQ(args.input_train_split, args.clip_feature_save_path, split="train", wordEmbedding="bert", number_of_sample=1000, save_or_load=True, update=args.update_dataloader, save_or_load_path="/scratch/snagabhushan_umass_edu/dataset/v1/save/nlq/train_50.pkl")
+    val_nlq = Ego4d_NLQ(args.input_val_split, args.clip_feature_save_path, split="val", wordEmbedding="bert", number_of_sample=1000, save_or_load=True, update=args.update_dataloader, save_or_load_path="/scratch/snagabhushan_umass_edu/dataset/v1/save/nlq/val_25.pkl")
+    test_nlq = Ego4d_NLQ(args.input_val_split, args.clip_feature_save_path, split="test", wordEmbedding="bert", number_of_sample=1000, save_or_load=True, update=args.update_dataloader , save_or_load_path="/scratch/snagabhushan_umass_edu/dataset/v1/save/nlq/test_25.pkl")
 
     train_loader = get_train_loader(train_nlq, batch_size=1)
     val_loader = get_test_loader(val_nlq, batch_size=1)
@@ -104,7 +105,7 @@ def train(model, dataloader, model_loss, optimizer, args, writer, epoch):
         ends = ends.to(args.device)
         is_ans = is_ans.to(args.device)
 
-        input_features = torch.cat((features, query_emb), dim=1)
+        input_features = torch.cat((features, query_emb), dim=-1)
         pred = model(input_features)
         loss = model_loss(pred, starts, ends, is_ans)
         optimizer.zero_grad()
@@ -149,7 +150,7 @@ def test(model, dataloader, model_loss, args, writer, epoch):
         is_ans = is_ans.to(args.device)
 
         with torch.no_grad():
-            input_features = torch.cat((features, query_emb), dim=1)
+            input_features = torch.cat((features, query_emb), dim=-1)
             pred = model(input_features)
             loss = model_loss(pred, starts, ends, is_ans)
 
@@ -194,13 +195,13 @@ if __name__ == "__main__":
     for epoch in range(args.num_epochs):
         train_loss = train(model, train_loader, model_loss, optimizer, args, writer, epoch)
         val_loss, records = test(model, val_loader, model_loss, args, writer, epoch)
-        if not os.path.exists("output/records"):
-            os.makedirs("output/records")
-        with open(f"output/records/records_{epoch}.json", "w") as f:
+        if not os.path.exists(args.record_path):
+            os.makedirs(args.record_path)
+        with open(os.path.join(args.record_path, f"records_{epoch}.json"), "w") as f:
             json.dump(records, f, indent=4)
 
         #evaluate
         #test if better results
         test_loss, records = test(model, test_loader, model_loss, args, writer, epoch)
-        with open(f"output/records/records_test_{epoch}.json", "w") as f:
+        with open(os.path.join(args.record_path, f"records_test_{epoch}.json"), "w") as f:
             json.dump(records, f, indent=4)

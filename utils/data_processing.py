@@ -470,17 +470,18 @@ def train_collate_fn(batch):
     if clip_features[0] is None: #TODO
         return clip_id, clip_features, query_features, is_s, is_e, is_ans #TODO
 
+    # TODO have to pad different clip lengths with some token - make loss fn ignore those too
     clip_id = [x for x in clip_id]
     assert len(clip_features) == 1
-    clip_features = [x.squeeze(0) for x in clip_features]
-    clip_features = clip_features[0]
+    clip_features = torch.stack(clip_features)
 
     #get only CLS embedding for query
-    query_features = [x[:,0,:] for x in query_features[0]]
-    query_features = torch.cat(query_features, dim=0)
-    is_s = torch.stack([torch.tensor(x) for x in is_s]).to(torch.float)[0]
-    is_e = torch.stack([torch.tensor(x) for x in is_e]).to(torch.float)[0]
-    is_ans = torch.stack([torch.tensor(x) for x in is_ans]).to(torch.float)[0]
-    frame_length = torch.stack([torch.tensor(x) for x in frame_length])[0]
+    query_features = [torch.cat([y[:,0,:] for y in x],dim=0) for x in query_features]
+    query_features = torch.stack(query_features)
+
+    is_s = torch.stack([torch.tensor(x) for x in is_s]).to(torch.float)
+    is_e = torch.stack([torch.tensor(x) for x in is_e]).to(torch.float)
+    is_ans = torch.stack([torch.tensor(x) for x in is_ans]).to(torch.float)
+    frame_length = torch.stack([torch.tensor(x) for x in frame_length])
 
     return clip_id, clip_features, query_features, is_s, is_e, is_ans

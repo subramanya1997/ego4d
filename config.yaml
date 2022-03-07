@@ -1,12 +1,15 @@
 # Model Params
+## Hyperparams
 hidden_size: 1024
 num_epochs: 100
 learning_rate: 0.1
 batch_size: 64
+topk: 5 
+boundary_smoothing: 9 #smooth over 10 features
+## others
 force_cpu: false
 log_interval: 100
-topk: 5 
-
+update_dataloader: False
 
 
 # Video Preprocessing Parameters

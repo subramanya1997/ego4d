@@ -11,7 +11,7 @@ in `data/` folder. Specify the paths in `config.yaml`
 Run the preprocessing script using:
 
 ```bash
-python utils/prepare_ego4d_dataset.py -c config.yaml
+python utils/get_clip_features.py -c config.yaml
 ```
 
 This creates JSON files in `data/dataset/nlq_official_v1` that can be used for training and evaluating the VSLNet baseline model.
