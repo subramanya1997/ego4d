@@ -215,15 +215,14 @@ class Ego4d_NLQ(Dataset):
 
     def getfromidx(self, idx):
         """ Has to be updated """
-        sample_map = self.sample_query_map[idx]
-        frame = self.data[sample_map["range"][0]]
+        sample_map = self.data[idx]
         values = {
             "annotation_uid": sample_map["annotation_uid"],
             "clip_id": sample_map["clip_id"],
             "query_idx": sample_map["query_idx"],
-            "query": frame["query"],
-            "s_time": frame["exact_s_time"],
-            "e_time": frame["exact_e_time"],
+            "query": sample_map["query"],
+            "s_time": sample_map["exact_s_time"],
+            "e_time": sample_map["exact_e_time"],
         }
         return values
     
