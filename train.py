@@ -54,17 +54,20 @@ def parse_args():
 
 def get_dataloader(args):
     print("Loading data")
-    train_nlq = Ego4d_NLQ(args.input_train_split, args.clip_feature_save_path, split="train", wordEmbedding="bert", number_of_sample=1000, save_or_load=True, update=args.update_dataloader, save_or_load_path=f"{args.dataloader_cache_path}/train.pkl")
-    val_nlq = Ego4d_NLQ(args.input_val_split, args.clip_feature_save_path, split="val", wordEmbedding="bert", number_of_sample=1000, save_or_load=True, update=args.update_dataloader, save_or_load_path=f"{args.dataloader_cache_path}/val.pkl")
-    test_nlq = Ego4d_NLQ(args.input_val_split, args.clip_feature_save_path, split="test", wordEmbedding="bert", number_of_sample=1000, save_or_load=True, update=args.update_dataloader , save_or_load_path=f"{args.dataloader_cache_path}/test.pkl")
+    train_nlq = Ego4d_NLQ(args.input_train_split, modalities=None, split="train", save_or_load_path=f"{args.dataloader_cache_path}/final_train.pkl", config_file = args.dataloader_config)
+    val_nlq = Ego4d_NLQ(args.input_train_split, modalities=None, split="val", save_or_load_path=f"{args.dataloader_cache_path}/final_val.pkl", config_file = args.dataloader_config)
+    test_nlq = Ego4d_NLQ(args.input_train_split, modalities=None, split="test", save_or_load_path=f"{args.dataloader_cache_path}/final_test.pkl", config_file = args.dataloader_config)
 
     train_loader = get_train_loader(train_nlq, batch_size=1)
     val_loader = get_test_loader(val_nlq, batch_size=1)
     test_loader = get_test_loader(test_nlq, batch_size=1)
 
-    video_feature_size, query_feature_size = 2304, 768# train_nlq.video_feature_size, train_nlq.query_feature_size TODO
+    args.video_feature_size = train_nlq.video_feature_size if train_nlq.video_feature_size is not None else 0
+    args.query_feature_size = train_nlq.query_feature_size if train_nlq.query_feature_size is not None else 0
+    args.audio_feature_size = train_nlq.audio_feature_size if train_nlq.audio_feature_size is not None else 0
+
     print("Finished loading data")
-    return train_loader, val_loader, test_loader, video_feature_size, query_feature_size, val_nlq, test_nlq
+    return args, train_loader, val_loader, test_loader, val_nlq, test_nlq
 
 def init_model(args):
     print("Initializing model")
@@ -87,6 +90,23 @@ def infer_from_model(pred, topk, qa_pipeline):
     s, e, scores = decode_candidate_clips(qa_pipeline, start, end, topk, max_len)
     return s, e, scores
 
+def process_modality_features(clip_features, audio_features, query_features, starts, args, pooling_method = None):
+    length = starts.shape[1] # starts is (batch_size, seq len)
+    if features is not None:
+            features = torch.zeros([args.batch_size, length, args.video_feature_size])
+            features = features.to(args.device)
+    if audio_features is not None:
+        audio_features = torch.zeros([args.batch_size, length, args.audio_feature_size])
+        audio_features = audio_features.to(args.device)
+    if query_emb is not None:
+        query_emb = torch.zeros([args.batch_size, length, args.query_feature_size])
+        query_emb = query_emb.to(args.device)
+
+    # if pooling_method == "mean":
+    #     audio_features = torch.mean(audio_features, dim=1)
+    
+    return clip_features, audio_features, query_features
+
 def train(model, dataloader, model_loss, optimizer, args, writer, epoch):
     model.train()
     tqdm_obj = tqdm(
@@ -98,17 +118,18 @@ def train(model, dataloader, model_loss, optimizer, args, writer, epoch):
     total_loss = 0
     ns = 0
     for data in tqdm_obj:
-        (clip_id, features, query_emb, starts, ends, is_ans) = data
-        if features[0] is None: # TODO
-            continue# TODO
-        # print(clip_id, features.shape, query_emb.shape, starts.shape, ends.shape, is_ans.shape)
+        (_, clip_id, features, audio_features, query_emb, starts, ends, is_ans, _) = data
         ns += 1
+        # process_modality_features
         features = features.to(args.device)
+        # audio_features = audio_features.to(args.device)
         query_emb = query_emb.to(args.device)
         starts = starts.to(args.device)
         ends = ends.to(args.device)
         is_ans = is_ans.to(args.device)
 
+        
+        # input_features = torch.cat((features, audio_features, query_emb), dim=-1) # TODO
         input_features = torch.cat((features, query_emb), dim=-1)
         pred = model(input_features)
         loss = model_loss(pred, starts, ends, is_ans)
@@ -144,24 +165,24 @@ def test(model, dataloader, model_loss, args, writer, epoch, Test = False):
     records = []
     ns = 0
     for i, data in enumerate(tqdm_obj):
-        (clip_id, features, query_emb, starts, ends, is_ans) = data
-        if features[0] is None: # TODO
-            continue# TODO
+        (sample_id, clip_id, features, audio_features, query_emb, starts, ends, is_ans, _) = data
         ns+=1
         features = features.to(args.device)
+        # audio_features = audio_features.to(args.device)
         query_emb = query_emb.to(args.device)
         starts = starts.to(args.device)
         ends = ends.to(args.device)
         is_ans = is_ans.to(args.device)
+        input_features = torch.cat((features, query_emb), dim=-1)
 
         with torch.no_grad():
-            input_features = torch.cat((features, query_emb), dim=-1)
             pred = model(input_features)
             loss = model_loss(pred, starts, ends, is_ans)
 
         # infer
         s, e, scores = infer_from_model(pred, args.topk, qa_pipeline)
-        records.append({"sample_id": int(i), 
+        # print(sample_id, clip_id, torch.sum(ends))
+        records.append({"sample_id": int(sample_id[0]), 
                         "clip_id": str(clip_id),
                         "start": list([int(x) for x in s]), 
                         "end": list([int(x) for x in e]), 
@@ -222,8 +243,9 @@ def cache_records_and_evaluate(records, epoch, n_iter, args, nlq_data, writer, t
 
 if __name__ == "__main__":
     args = parse_args()
-    train_loader, val_loader, test_loader, video_feature_size, query_feature_size, val_nlq, test_nlq = get_dataloader(args)
-    args.embedding_dim = video_feature_size + query_feature_size
+    args, train_loader, val_loader, test_loader, val_nlq, test_nlq = get_dataloader(args)
+    # args.embedding_dim = args.video_feature_size + args.query_feature_size + args.audio_feature_size #TODO 
+    args.embedding_dim = args.video_feature_size + args.query_feature_size 
     model, model_loss, optimizer = init_model(args)
     initialise_wandb(args,model)
     writer = SummaryWriter()

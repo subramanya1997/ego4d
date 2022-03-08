@@ -9,9 +9,10 @@ boundary_smoothing: 9 #smooth over 10 features
 ## others
 force_cpu: false
 log_interval: 100
-update_dataloader: True
-dataloader_cache_path: /scratch/shantanuagar_umass_edu/ego4d/nlq/
-
+## data stuff
+update_dataloader: False
+dataloader_cache_path: /scratch/snagabhushan_umass_edu/dataset/v1/save/nlq/
+dataloader_config: ./dataset_config.yaml
 
 # Video Preprocessing Parameters
 input_train_split: data/annotations/sample/sample_nlq_train.json
@@ -20,5 +21,3 @@ input_test_split: data/annotations/sample/sample_nlq_test.json
 video_feature_read_path: data/video_features/
 clip_feature_save_path: data/saved_clip_features/ # save path for output clip features
 output_save_path: data/nlq_official_v1 # save path for clip info along with train-val split
-#dataset config
-dataset_config_path: ./dataset_config.yaml

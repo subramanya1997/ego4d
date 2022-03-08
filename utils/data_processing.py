@@ -32,7 +32,7 @@ class Ego4d_NLQ(Dataset):
         """Class for reading and visualizing annotations.
         Args:
             annotations_path (str): location of annotation file
-            modalities (Modal): List of modalities to consider or None if you want to consider all
+            modalities (Modal): List of modalities to consider or None if you want to consider all of type Modal (default: None)
             split (str): train, val or test
             config_file (path): config file which has fields video_features_path, audio_features_path, video_fps, video_window_size, 
                                 audio_fps, audio_window_size, wordEmbedding_model, number_of_sample, max_frames, min_frames, save_or_load
@@ -201,7 +201,7 @@ class Ego4d_NLQ(Dataset):
         is_s = [ (sample_query['s_video_frame'] == i) for i in range(s_v_idx, e_v_idx)]
         is_e = [ (sample_query['e_video_frame'] == i) for i in range(s_v_idx, e_v_idx)]
         is_ans = [ (sample_query['s_video_frame'] <= i and sample_query['e_video_frame'] >= i) for i in range(s_v_idx, e_v_idx)]
-        frame_length = [ sample_query['video_frame_length'] for i in range(s_v_idx, e_v_idx)]
+        frame_length = sample_query['video_frame_length']#[ sample_query['video_frame_length'] for i in range(s_v_idx, e_v_idx)]
         
         return sample_id, clip_id, clip_features, audio_features, query_features, is_s, is_e, is_ans, frame_length
 
@@ -466,15 +466,17 @@ def get_test_loader(dataset, batch_size):
     return test_loader
 
 def train_collate_fn(batch):
-    clip_id, clip_features, query_features, is_s, is_e, is_ans, frame_length = zip(*batch)
+    sample_id, clip_id, clip_features, audio_features, query_features, is_s, is_e, is_ans, frame_length = zip(*batch)
     if clip_features[0] is None: #TODO
         return clip_id, clip_features, query_features, is_s, is_e, is_ans #TODO
 
     # TODO have to pad different clip lengths with some token - make loss fn ignore those too
     clip_id = [x for x in clip_id]
+    sample_id = [x for x in sample_id]
     assert len(clip_features) == 1
     clip_features = torch.stack(clip_features)
 
+    # audio_features = torch.stack(audio_features) # TODO fix this for audio shape
     #get only CLS embedding for query
     query_features = [torch.cat([y[:,0,:] for y in x],dim=0) for x in query_features]
     query_features = torch.stack(query_features)
@@ -484,4 +486,4 @@ def train_collate_fn(batch):
     is_ans = torch.stack([torch.tensor(x) for x in is_ans]).to(torch.float)
     frame_length = torch.stack([torch.tensor(x) for x in frame_length])
 
-    return clip_id, clip_features, query_features, is_s, is_e, is_ans
+    return sample_id, clip_id, clip_features, audio_features, query_features, is_s, is_e, is_ans, frame_length
