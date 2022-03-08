@@ -27,6 +27,7 @@ def checkNumberOfDatapoints(paths, video_files_path, args):
             _audio_datapoints = torch.load(_path).shape[0] // 49
             _video_datapoints = torch.load(os.path.join(args['input_video_directory'], _filename+'.pt')).shape[0]
             print(_audio_datapoints, _video_datapoints)
+            print(_filename)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)

@@ -16,3 +16,6 @@ input_val_split: data/annotations/nlq_val.json
 video_feature_read_path: data/video_features/
 clip_feature_save_path: data/saved_clip_features/ # save path for output clip features
 output_save_path: data/nlq_official_v1 # save path for clip info along with train-val split
+
+#dataset config
+dataset_config_path: ./dataset_config.yaml

@@ -1,0 +1,2 @@
+#!/bin/bash
+python utils_audio.py --video_path /scratch/snagabhushan_umass_edu/dataset/v1/full_scale/ --save_audio_path /scratch/snagabhushan_umass_edu/dataset/v1/audio_extracted_of_video/ --num_workers 100

@@ -1,9 +1,12 @@
 #import libs
 import json
 import os
-from pydoc import cli
+from re import L
 from tqdm import tqdm
 import math
+import yaml
+import argparse
+import enum
 
 #import pytorch
 import torch
@@ -13,160 +16,205 @@ from torch.utils.data import Dataset, DataLoader
 from transformers import BertTokenizer, BertModel
 
 #import custom functions
-from utils.data_utils import get_nearest_frame, load_pickle, save_pickle
-from config import Config
+from utils.data_utils import load_pickle, save_pickle
 
 from collections import defaultdict
 
+class Modal(enum.Enum):
+    _Video = 1
+    _Audio = 2
+    _Transcript = 3
+    _IMU = 4
+    _3D = 5
+
 class Ego4d_NLQ(Dataset):
-    def __init__(self, annotations_path, features_path=None, split="train", wordEmbedding="bert", number_of_sample=None, numer_of_frames=500, save_or_load=False, update=False, save_or_load_path="./scratch/snagabhushan_umass_edu/dataset/v1/save/nlq/train.pkl", filter_vids = None):
+    def __init__(self, annotations_path, modalities = None, split="train", config_file="dataset_config.yaml", save_or_load_path=None, filter_vids = None):
         """Class for reading and visualizing annotations.
         Args:
             annotations_path (str): location of annotation file
-            features_path (str): location of clip features file
+            modalities (Modal): List of modalities to consider or None if you want to consider all
             split (str): train, val or test
-            wordEmbedding (str): bert (model for text embeddings)
-            number_of_sample (int): None reads all values, or number of annotations
-            save_or_load (bool): save to pickle (Not able to save the whole file)
-            update (bool): to update save pickel file
+            config_file (path): config file which has fields video_features_path, audio_features_path, video_fps, video_window_size, 
+                                audio_fps, audio_window_size, wordEmbedding_model, number_of_sample, max_frames, min_frames, save_or_load
+                                update
             save_or_load_path (str): path to load or save
+            filter_vids (str): List of video ids to get clips from or None
         """
-        if save_or_load and not update:
+        self.parsed_args = self._load_config(config_file)
+        print("Done Loading Config...")
+
+        if self.parsed_args.save_or_load and not self.parsed_args.update and save_or_load_path is not None:
             if os.path.exists(save_or_load_path): #load
+                print(f"Loading datafile from {save_or_load_path}")
                 saved_data = load_pickle(save_or_load_path)
+                print(f"Done loading datafile...")
+                #about dataset
                 self.version = saved_data['version']
                 self.description = saved_data['description']
+                #clip - video details
                 self.all_clip_video_map = saved_data['all_clip_video_map']
+                # split
                 self.split = saved_data['split']
-                self.wordEmbedding =  saved_data['wordEmbedding']
+                #dataset info
                 self.idx_counter = saved_data['idx_counter']
-                self.data = saved_data['data']
-                self.video_feature_size = saved_data['video_feature_size']
-                self.query_feature_size = saved_data['query_feature_size']
-                self.sample_query_map = saved_data['sample_query_map']
-                self.numer_of_frames = saved_data['numer_of_frames']
+                self.data = []
                 self.idx_sample_query = saved_data['idx_sample_query']
-                # for i in range(len(self.sample_query_map.keys())):
-                #     _, clip_feature, query_features, _, _, _, _, = self[i]
+                self.sample_query_map = saved_data['sample_query_map']
+                self.video_feature_size = saved_data['video_feature_size']
+                self.audio_feature_size = saved_data['audio_feature_size']
+                self.query_feature_size = saved_data['query_feature_size']
+                #models and options
+                self.wordEmbedding_model =  self.parsed_args.wordEmbedding_model
+                self.max_frames = self.parsed_args.max_frames if self.parsed_args.max_frames != 'None' else None
+                self.min_frames = self.parsed_args.min_frames if self.parsed_args.min_frames != 'None' else None
+                self.number_of_sample = self.parsed_args.number_of_sample if self.parsed_args.number_of_sample != 'None' else None
+                self.video_features_path = self.parsed_args.video_features_path
+                self.audio_features_path = self.parsed_args.audio_features_path
+                self.modalities = set(modalities) if modalities is not None else None
+                self.filter_vids = set(filter_vids) if filter_vids is not None else None
+
+                self._get_final_dataset()
+                print("Done processing data...")
                 
                 print(f"#{self.split} frames: {self.idx_counter}")
                 print(f"#{self.split} clips: {self.idx_sample_query}")
-
+                print(f"#{self.split} final clips after filters: {len(self.data)}")
                 return
 
         raw_data = self._load_json(annotations_path)
-        self.version = raw_data['version']
-        self.description = raw_data['description']
-        self.all_clip_video_map = {}
-        self.split = split
-        self.wordEmbedding = wordEmbedding
-        self.number_of_sample = number_of_sample
-        self.filter_vids = filter_vids
-        
-        self.idx_counter = 0
-        self.sample_query_map = {}
-        self.idx_sample_query = 0
-        self.numer_of_frames = numer_of_frames
-
-        self.ids_remove = defaultdict(int)
-        
         assert (
             type(raw_data) == dict
         ), "Annotation file format {} not supported.".format(type(raw_data))
+        print("Done Loading Annotations...")
+        #about dataset
+        self.version = raw_data['version']
+        self.description = raw_data['description']
+        #clip - video details
+        self.all_clip_video_map = {}
+        # split
+        self.split = split
+        #dataset info
+        self.idx_counter = 0
+        self.data = []
+        self.idx_sample_query = 0
+        self.sample_query_map = {}
+        self.video_feature_size = None
+        self.audio_feature_size = None
+        self.query_feature_size = None
+        #models and options
+        self.wordEmbedding_model = self.parsed_args.wordEmbedding_model
+        self.max_frames = self.parsed_args.max_frames if self.parsed_args.max_frames != 'None' else None
+        self.min_frames = self.parsed_args.min_frames if self.parsed_args.min_frames != 'None' else None
+        self.number_of_sample = self.parsed_args.number_of_sample if self.parsed_args.number_of_sample != 'None' else None
+        self.video_features_path = self.parsed_args.video_features_path 
+        self.audio_features_path = self.parsed_args.audio_features_path
+        self.modalities = set(modalities) if modalities is not None else None
+        self.filter_vids = set(filter_vids) if filter_vids is not None else None
         
+        assert (
+            self.video_features_path is not None
+        ), "No Video Features Path Found - Please updated dataset_config.yaml"
+
+        assert (
+            self.audio_features_path is not None
+        ), "No Audio Features Path Found - Please updated dataset_config.yaml"
+        
+        #reformat data
         raw_data, clip_video_map = self._reformat_data(raw_data)
-        self.raw_data_formatted = raw_data
         self.all_clip_video_map.update(clip_video_map)
-        if(features_path != None):
-            self._process_frame_embeddings(raw_data, features_path)
+        print("Done reforming data...")
+        
+        #process dataset
+        self._process_dataset(raw_data)
+        print("Done processing data...")
+        self._get_final_dataset()
+        print("Done adding filters to data...")
 
         print(f"#{self.split} frames: {self.idx_counter}")
         print(f"#{self.split} clips: {self.idx_sample_query}")
+        print(f"#{self.split} final clips after filters: {len(self.data)}")
 
         # get feature sizes
         if self.idx_counter != 0:
-            #if self.split == 'train':
-            if False:
-                _, clip_feature, query_features, _, _, _, _, _ = self[0]
-                self.video_feature_size = clip_feature.shape[-1]
-                self.query_feature_size = query_features.shape[-1]
-            else:
-                _, clip_feature, query_features, _, _, _, _ = self[0]
+            """ sample_id, clip_id, clip_features, audio_features, query_features, is_s, is_e, is_ans, frame_length """
+            _, _, clip_feature, audio_features, query_features, _, _, _, _ = self[0]
+            if clip_feature is not None:
                 self.video_feature_size = clip_feature[0].shape[-1]
+            if audio_features is not None:
+                self.audio_feature_size = audio_features[0].shape[-1]
+            if query_features is not None:
                 self.query_feature_size = query_features[0].shape[-1]
         else:
             print('No Data Loaded!')
 
-        for i in range(len(self.sample_query_map.keys())):
-            _, clip_feature, query_features, _, _, _, _ = self[i]
-
-        print(self.ids_remove)
-
-        if save_or_load or update:
+        # save it to a file if path given
+        if save_or_load_path is not None and (self.parsed_args.save_or_load or self.parsed_args.update):
             self.save_data(save_or_load_path)
 
     def __len__(self):
-        #if self.split=="train":
-        if False:
-            return self.idx_counter
-        else:
-            return len(self.sample_query_map)
+        """Length of the data"""
+        return len(self.data)
 
     def __getitem__(self, idx):
+        """ set item from data 
+            Args:
+                idx (int): index in self.data array (index in the filtered array)
+            returns:
+                sample_id(int), clip_id(str), clip_features(tensor or None), audio_features(tensor or None), 
+                query_features(tensor or None), is_s(list(bool)), is_e(list(bool)), is_ans(list(bool)), 
+                frame_length(list(int))
+        """
+        sample_id, sample_query = self.data[idx]
+        s_v_idx, e_v_idx = sample_query["video_range"]
+        s_a_idx, e_a_idx = sample_query["audio_range"]
         
-        #if self.split == "train":
-        if False:
-            clip_path = self.data[idx]['clip_path']
-            clip_feature = torch.load(clip_path)
-            frame_num = self.data[idx]['frame_num']
-            clip_feature = clip_feature[frame_num,:]
-            clip_id = self.data[idx]['clip_id']
-            query_features = self.data[idx]['query_features']
-            is_s = self.data[idx]['is_s_frame']
-            is_e = self.data[idx]['is_e_frame']
-            is_ans = self.data[idx]['is_within_range']
-            frame_length = self.data[idx]['frame_length']
-            sample_query_idx = self.data[idx]['sample_query_idx']
-            return clip_id, clip_feature, query_features, is_s, is_e, is_ans, frame_length, sample_query_idx
+        clip_path = sample_query['clip_path']
+        clip_id = sample_query['clip_id']
+
+        audio_path = sample_query['audio_path']
+
+        clip_features = None
+        audio_features = None
+        if self.modalities is not None:
+            if (Modal._Video in self.modalities):
+                if clip_path is not None:
+                    clip_features = torch.load(clip_path)
+                    clip_features = clip_features[ s_v_idx : e_v_idx , : ]
+
+            if (Modal._Audio in self.modalities):
+                if audio_path is not None:
+                    audio_features = torch.load(audio_path)
+                    audio_features = audio_features[ s_a_idx : e_a_idx , : ]
+        else:
+            if clip_path is not None:
+                clip_features = torch.load(clip_path)
+                clip_features = clip_features[ s_v_idx : e_v_idx , : ]
+
+            if audio_path is not None:
+                    audio_features = torch.load(audio_path)
+                    audio_features = audio_features[ s_a_idx : e_a_idx , : ]
+
+        query_features = sample_query['query_features']
+        if query_features is not None:
+            query_features = [query_features for item in range(s_v_idx, e_v_idx)]
         
-        return self.get_test_query(idx)
-    
-    def get_test_query(self,idx):
-        sample_query = self.sample_query_map[idx]
-        s_d_idx, e_d_idx = sample_query["range"]
-        data = self.data[ s_d_idx : e_d_idx ]
-        s_idx, e_idx = sample_query["clip_range"]
-        clip_path = data[0]['clip_path']
-        clip_id = data[0]['clip_id']
-        clip_features = torch.load(clip_path)
+        is_s = [ (sample_query['s_video_frame'] == i) for i in range(s_v_idx, e_v_idx)]
+        is_e = [ (sample_query['e_video_frame'] == i) for i in range(s_v_idx, e_v_idx)]
+        is_ans = [ (sample_query['s_video_frame'] <= i and sample_query['e_video_frame'] >= i) for i in range(s_v_idx, e_v_idx)]
+        frame_length = [ sample_query['video_frame_length'] for i in range(s_v_idx, e_v_idx)]
         
-<<<<<<< HEAD
-        clip_features = clip_features[ s_idx : e_idx , : ]
+        return sample_id, clip_id, clip_features, audio_features, query_features, is_s, is_e, is_ans, frame_length
 
-        print(clip_features.shape, s_idx, e_idx, len(data))
-=======
-        # print(clip_features.shape, s_idx, e_idx)
-        
-        clip_features = clip_features[ s_idx : e_idx , : ]
+    def _get_nearest_video_frame(self, time, floor_or_ceil=None):
+        """Obtain the nearest frame for a given time, video fps, and feature window."""
+        return floor_or_ceil(int(time * self.parsed_args.video_fps / self.parsed_args.video_window_size))
 
-        if clip_id == '8d3f5b12-ac2c-4315-80ed-bb827aa91bd4':
-            return None, None, None, None, None, None, None
->>>>>>> 9b07310ad8cc6daaf9f77f7ede5f08418ca5a69f
-        
-        if (clip_features.shape[0] != len(data)) and len(list(set([x['clip_id'] for x in data]))) != 1:
-            self.ids_remove[clip_id] += 1
-            print('Wrong')
-
-        query_features = [item['query_features'] for item in data]
-        is_s = [item['is_s_frame'] for item in data]
-        is_e = [item['is_e_frame'] for item in data]
-
-        is_ans = [item['is_within_range'] for item in data]
-        frame_length = [item['frame_length'] for item in data]
-        return clip_id, clip_features, query_features, is_s, is_e, is_ans, frame_length
-
+    def _get_nearest_audio_frame(self, time, floor_or_ceil=None):
+        """Obtain the nearest frame for a given time, audio fps, and feature window."""
+        return floor_or_ceil(int(time * self.parsed_args.audio_fps / self.parsed_args.audio_window_size)) * 49
 
     def getfromidx(self, idx):
+        """ Has to be updated """
         sample_map = self.sample_query_map[idx]
         frame = self.data[sample_map["range"][0]]
         values = {
@@ -176,46 +224,48 @@ class Ego4d_NLQ(Dataset):
             "query": frame["query"],
             "s_time": frame["exact_s_time"],
             "e_time": frame["exact_e_time"],
-
         }
         return values
-
-    def get_query_sample(self, idx):
-        '''
-        '''
-        sample_query = self.sample_query_map[idx]
-        s_idx, e_idx = sample_query["range"]
-        items = []
-        for _idx in range(s_idx, e_idx):
-            items.append(self.__getitem__(_idx))
-        return items
     
     def save_data(self, path):
+        """Save data to path"""
         saved_data = {}
+        #about dataset
         saved_data['version'] = self.version
-        saved_data['description'] = self.description
+        saved_data['description'] = self.description 
+        #clip - video details
         saved_data['all_clip_video_map'] = self.all_clip_video_map
+        # split
         saved_data['split'] = self.split
-        saved_data['wordEmbedding'] = self.wordEmbedding
-        saved_data['idx_counter'] =  self.idx_counter
-        saved_data['data'] = self.data
-        saved_data['video_feature_size'] = self.video_feature_size 
-        saved_data['query_feature_size'] = self.query_feature_size
-        saved_data['sample_query_map'] = self.sample_query_map
-        saved_data['numer_of_frames'] = self.numer_of_frames
+        #dataset info
+        saved_data['idx_counter'] = self.idx_counter
         saved_data['idx_sample_query'] = self.idx_sample_query
+        saved_data['sample_query_map'] = self.sample_query_map
+        saved_data['video_feature_size'] = self.video_feature_size
+        saved_data['audio_feature_size'] = self.audio_feature_size 
+        saved_data['query_feature_size'] = self.query_feature_size
 
-        if not os.path.exists(path): #save create folder
-            pass
+        #if not os.path.exists(path): #save create folder
+            #pass
         save_pickle(saved_data, path)
 
+    def _load_config(self, path):
+        print("Loading Config...")
+        parser = argparse.ArgumentParser(description=__doc__)
+        parsed_args = parser.parse_args()
+        with open(path, "r") as f:
+            config = yaml.safe_load(f)
+
+        for key, value in config.items():
+            if key not in parsed_args.__dict__ or parsed_args.__dict__[key] is None:
+                parsed_args.__dict__[key] = value
+        return parsed_args
+
     def _load_json(self, path):
+        """Load annoations json"""
+        print("Loading annotations...")
         with open(path, "r") as f:
             return json.load(f)
-    
-    def _get_nearest_frame(self, time, floor_or_ceil=None):
-        """Obtain the nearest frame for a given time, video fps, and feature window."""
-        return floor_or_ceil(int(time * Config.VIDEO_FPS / Config.WINDOW_SIZE))
 
     def _process_question(self, question):
         """Process the question to make it canonical."""
@@ -226,24 +276,27 @@ class Ego4d_NLQ(Dataset):
         fps, num_frames, timestamps, sentences, exact_times,
         annotation_uids, query_idx.
         """
+        print("Reforming data...")
         formatted_data = {}
         clip_video_map = {}
         for video_datum in split_data["videos"]:
-            if self.filter_vids is not None and video_datum["video_uid"] not in self.filter_vids:
-                continue
             for clip_datum in video_datum["clips"]:
                 clip_uid = clip_datum["clip_uid"]
                 clip_video_map[clip_uid] = (
                     video_datum["video_uid"],
                     clip_datum["video_start_sec"],
                     clip_datum["video_end_sec"],
+                    clip_datum["clip_start_sec"],
+                    clip_datum["clip_end_sec"],
                 )
-                clip_duration = clip_datum["video_end_sec"] - clip_datum["video_start_sec"]
-                num_frames = self._get_nearest_frame(clip_duration, math.ceil)
+                num_frames = self._get_nearest_video_frame(clip_datum["video_end_sec"], math.ceil) - self._get_nearest_video_frame(clip_datum["video_start_sec"], math.floor) 
+                a_num_frames = self._get_nearest_audio_frame(clip_datum["video_end_sec"], math.ceil) - self._get_nearest_audio_frame(clip_datum["video_start_sec"], math.floor)
                 new_dict = {
-                    "fps": Config.VIDEO_FPS / Config.WINDOW_SIZE,
+                    "fps": self.parsed_args.video_fps / self.parsed_args.video_window_size,
                     "num_frames": num_frames,
+                    "a_num_frames": a_num_frames,
                     "timestamps": [],
+                    "a_timestamps": [],
                     "exact_times": [],
                     "sentences": [],
                     "query_templates": [],
@@ -256,7 +309,6 @@ class Ego4d_NLQ(Dataset):
                         
                         start_time = float(datum["clip_start_sec"])
                         end_time = float(datum["clip_end_sec"])
-                
 
                         if "query" not in datum or not datum["query"]:
                             continue
@@ -267,116 +319,134 @@ class Ego4d_NLQ(Dataset):
                         new_dict["exact_times"].append([start_time, end_time]),
                         new_dict["timestamps"].append(
                             [
-                                get_nearest_frame(start_time, math.floor),
-                                get_nearest_frame(end_time, math.ceil),
+                                self._get_nearest_video_frame(start_time, math.floor),
+                                self._get_nearest_video_frame(end_time, math.ceil),
+                            ]
+                        ),
+                        new_dict["a_timestamps"].append(
+                            [
+                                self._get_nearest_audio_frame(start_time, math.floor),
+                                self._get_nearest_audio_frame(end_time, math.ceil),
                             ]
                         )
                 formatted_data[clip_uid] = new_dict
         return formatted_data, clip_video_map
-    
-    def _process_frame_embeddings(self, data, features_path):
-        tokenizer = None
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        if self.wordEmbedding == "bert":
-            tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
-            model = BertModel.from_pretrained('bert-base-uncased', output_hidden_states = True ).to(device) # Whether the model returns all hidden-states.
-            model.eval()         
-            
-        self.data = []
-        for clp, data_item in tqdm(data.items(), total=len(data), desc=f"process episodic nlq {self.split}"):
 
+    def _get_final_dataset(self):
+        """Apply filters to the dataset"""
+        print("Adding filters to data...")
+        for _id, info in tqdm(self.sample_query_map.items(), total=len(self.sample_query_map.keys()) ,desc=f"Final episodic nlq {self.split} dataset"):
+            #number of sample option
             if self.number_of_sample is not None:
-                if self.number_of_sample <= self.idx_sample_query:
+                if len(self.data) >= self.number_of_sample:
                     break
 
-            num_frames = data_item["num_frames"]
+            if self.filter_vids is not None and info['video_id'] not in self.filter_vids:
+                continue
+            
+            # modalities option
+            if self.modalities is not None:
+                if (Modal._Video in self.modalities):
+                    if  (info['clip_path'] == None):
+                        continue
 
+                if (Modal._Audio in self.modalities): 
+                    if (info['audio_path'] == None) :
+                        continue
+
+            # number of frames as options
+            if self.min_frames is not None:
+                if info['annotated_frame_length'] < self.min_frames:
+                    continue
+            if self.max_frames is not None:
+                if info['annotated_frame_length'] > self.max_frames:
+                    continue
+
+            self.data.append((_id, info))
+
+    
+    def _process_dataset(self, data):
+        """Process the entire json"""
+        print("Processing data...")
+        # use cuda if available
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        # text features models
+        tokenizer = BertTokenizer.from_pretrained(self.parsed_args.wordEmbedding_model)
+        model = BertModel.from_pretrained(self.parsed_args.wordEmbedding_model, output_hidden_states = True ).to(device) # Whether the model returns all hidden-states.
+        model.eval()         
+
+        for clp, data_item in tqdm(data.items(), total=len(data), desc=f"process episodic nlq {self.split}"): 
+
+            num_frames = data_item["num_frames"]
+            num_audio_frames = data_item["a_num_frames"]
             zipper = zip(
+                        data_item["a_timestamps"],
                         data_item["timestamps"],
                         data_item["exact_times"],
                         data_item["sentences"],
                         data_item["annotation_uids"],
                         data_item["query_idx"],
             )
-            clip_path = os.path.join(features_path, clp+'.pt')
-            # clip_feature = None 
-            # if os.path.exists(features_path):
-            #     clip_feature = torch.load(clip_path)
 
-            for timestamp, exact_time, sentence, ann_uid, query_idx in zipper:
+            #modal paths
+            clip_path = os.path.join(self.video_features_path, clp+'.pt')
+            if not os.path.exists(clip_path):
+                clip_path = None
 
-                if self.number_of_sample is not None:
-                    if self.number_of_sample <= self.idx_sample_query:
-                        break
+            audio_path = os.path.join(self.audio_features_path, clp+'.pt')
+            if not os.path.exists(audio_path):
+                audio_path = None
+  
+            for a_timestamps, timestamp, exact_time, sentence, ann_uid, query_idx in zipper:
 
                 s_frame = 0
                 e_frame = num_frames-1
+                s_audio_frame = 0
+                e_audio_frame = num_audio_frames-1
 
                 if self.split == "train": #at test give the whole clip as input
                     s_frame = max(0, timestamp[0]-5)
                     e_frame = min(num_frames-1, timestamp[1]+5)
-
-                clip_features = torch.load(clip_path)
-                clip_features = clip_features[ s_frame : e_frame+1 , : ]
-                
-                if (clip_features.shape[0] != (e_frame - s_frame)):
-                    continue
-
-                if (timestamp[1] - timestamp[0]) < 5:
-                    continue
-
-                if self.numer_of_frames is not None:
-                    if self.numer_of_frames < (e_frame - s_frame):
-                        continue
-
-                _s_index_query =  self.idx_counter
+                    s_audio_frame = max(0, a_timestamps[0]-5)
+                    e_audio_frame = min(num_audio_frames-1, a_timestamps[1]+5)
 
                 #tokenizer for bert with [cls] token
                 _query = sentence.strip().lower()
                 input = tokenizer(_query, return_tensors='pt').to(device)
-                _word_features = None
+                _text_features = None
                 with torch.no_grad():
-                    _word_features = model(**input).last_hidden_state.to('cpu')
+                    _text_features = model(**input).last_hidden_state.to('cpu')
 
                 words = sentence
-                for frame_num in range(s_frame, e_frame+1):
-                    record = {
-                        "sample_id": self.idx_counter,
-                        "clip_id": str(clp),
-                        "clip_path": clip_path,
-                        # "clip_feature": clip_feature,
-                        "words": words,
-                        "query": _query,
-                        "query_features": _word_features,
-                        "annotation_uid": ann_uid,
-                        "query_idx": query_idx,
-                        "sample_query_idx": self.idx_sample_query,
-                        "s_frame": timestamp[0],
-                        "e_frame": timestamp[1],
-                        "exact_s_time": exact_time[0],
-                        "exact_e_time": exact_time[1],
-                        "frame_num": frame_num,
-                        "frame_length": e_frame - s_frame,
-                        "is_s_frame": True if frame_num == timestamp[0] else False,
-                        "is_e_frame": True if frame_num == timestamp[1] else False,
-                        "is_within_range": True if frame_num >= timestamp[0] and frame_num <= timestamp[1] else False,
-                    }
-                    self.data.append(record)
-                    self.idx_counter += 1
 
-                self.sample_query_map[self.idx_sample_query] = {
+                record =  {
+                    "video_id": str(self.all_clip_video_map[clp][0]),
                     "clip_id": str(clp),
+                    "clip_path": clip_path,
+                    "audio_path": audio_path,
+                    "words": words,
+                    "query": _query,
+                    "query_features": _text_features,
                     "annotation_uid": ann_uid,
                     "query_idx": query_idx,
-                    "range" : ( _s_index_query, self.idx_counter ),
-<<<<<<< HEAD
-                    "clip_range": (s_frame,  e_frame+1)  
-=======
-                    "clip_range": ( s_frame,  e_frame+1)  
->>>>>>> 9b07310ad8cc6daaf9f77f7ede5f08418ca5a69f
+                    "s_video_frame": timestamp[0],
+                    "e_video_frame": timestamp[1],
+                    "s_audio_frame": a_timestamps[0],
+                    "e_audio_frame": a_timestamps[1],
+                    "exact_s_time": exact_time[0],
+                    "exact_e_time": exact_time[1],
+                    "clip_s_time": self.all_clip_video_map[clp][3],
+                    "clip_e_time": self.all_clip_video_map[clp][4],
+                    "video_frame_length": e_frame - s_frame + 1,
+                    "audio_frame_length": e_audio_frame - s_audio_frame + 1,
+                    "video_range": ( s_frame,  e_frame),
+                    "audio_range": ( s_audio_frame,  e_audio_frame),
+                    "annotated_frame_length": timestamp[1] - timestamp[0]
                 }
-                self.idx_sample_query += 1
 
+                self.sample_query_map[self.idx_sample_query] = record
+                self.idx_counter += e_frame - s_frame + 1
+                self.idx_sample_query += 1
 
 def get_train_loader(dataset, batch_size):
     train_loader = DataLoader(
