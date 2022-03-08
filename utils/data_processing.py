@@ -215,7 +215,7 @@ class Ego4d_NLQ(Dataset):
 
     def getfromidx(self, idx):
         """ Has to be updated """
-        sample_map = self.data[idx]
+        sample_map = self.sample_query_map[idx]
         values = {
             "annotation_uid": sample_map["annotation_uid"],
             "clip_id": sample_map["clip_id"],

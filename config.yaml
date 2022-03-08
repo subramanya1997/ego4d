@@ -1,7 +1,7 @@
 # Model Params
 ## Hyperparams
 hidden_size: 1024
-num_epochs: 100
+num_epochs: 50
 learning_rate: 0.1
 batch_size: 64
 topk: 5 
