@@ -33,6 +33,22 @@ def display_results(results, mIoU, thresholds, topK, title=None):
         table.justify_columns[ii] = "center"
     return table.table
 
+def results_dict(results, mIoU, thresholds, topK, title=None):
+    display_data = [
+        [f"Rank@{ii} mIoU@{jj}" for ii in topK for jj in thresholds] + ["mIoU"]
+    ]
+    # results *= 100
+    mIoU *= 100
+    display_data.append(
+        [
+            results[jj][ii]
+            for ii in range(len(topK))
+            for jj in range(len(thresholds))
+        ]
+        + [mIoU]
+    )
+    display_data = dict(zip(display_data[0],display_data[1]))
+    return display_data
 
 def compute_IoU(pred, gt):
     """Compute the IoU given predicted and ground truth windows."""

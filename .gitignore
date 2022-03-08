@@ -123,6 +123,7 @@ data/
 # misc
 output/
 runs/
+wandb/
 
 # VS Code debugger
 .vscode

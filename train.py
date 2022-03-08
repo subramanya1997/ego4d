@@ -16,6 +16,7 @@ from transformers import pipeline
 from model.meme import MEME
 from model.meme_loss import MEME_LOSS
 from utils.metrics import decode_candidate_clips
+from utils.evaluate_records import evaluate_predicted_records
 from utils.data_processing import Ego4d_NLQ, get_train_loader, get_test_loader
 
 def parse_args():
@@ -26,7 +27,10 @@ def parse_args():
     parser.add_argument("--max-len", help="maximum length of answer clip", type=int, default=None)
     parser.add_argument("--force-cpu", help="enforce cpu computation", type=int, default=None)
     parser.add_argument("-r", "--record-path", help="path for saving records", type=str, default='output/records/')
-
+    parser.add_argument("-p", "--prefix", help="prefix for this run", type=str, default='meme')
+    parser.add_argument("-w", "--wandb-name", \
+                        help="wandb name for this run, defaults to random names by wandb",\
+                        type=str, default=None)
     try:
         parsed_args = parser.parse_args()
     except (IOError) as msg:
@@ -50,9 +54,9 @@ def parse_args():
 
 def get_dataloader(args):
     print("Loading data")
-    train_nlq = Ego4d_NLQ(args.input_train_split, args.clip_feature_save_path, split="train", wordEmbedding="bert", number_of_sample=1000, save_or_load=True, update=args.update_dataloader, save_or_load_path="/scratch/snagabhushan_umass_edu/dataset/v1/save/nlq/train_50.pkl")
-    val_nlq = Ego4d_NLQ(args.input_val_split, args.clip_feature_save_path, split="val", wordEmbedding="bert", number_of_sample=1000, save_or_load=True, update=args.update_dataloader, save_or_load_path="/scratch/snagabhushan_umass_edu/dataset/v1/save/nlq/val_25.pkl")
-    test_nlq = Ego4d_NLQ(args.input_val_split, args.clip_feature_save_path, split="test", wordEmbedding="bert", number_of_sample=1000, save_or_load=True, update=args.update_dataloader , save_or_load_path="/scratch/snagabhushan_umass_edu/dataset/v1/save/nlq/test_25.pkl")
+    train_nlq = Ego4d_NLQ(args.input_train_split, args.clip_feature_save_path, split="train", wordEmbedding="bert", number_of_sample=1000, save_or_load=True, update=args.update_dataloader, save_or_load_path=f"{args.dataloader_cache_path}/train.pkl")
+    val_nlq = Ego4d_NLQ(args.input_val_split, args.clip_feature_save_path, split="val", wordEmbedding="bert", number_of_sample=1000, save_or_load=True, update=args.update_dataloader, save_or_load_path=f"{args.dataloader_cache_path}/val.pkl")
+    test_nlq = Ego4d_NLQ(args.input_val_split, args.clip_feature_save_path, split="test", wordEmbedding="bert", number_of_sample=1000, save_or_load=True, update=args.update_dataloader , save_or_load_path=f"{args.dataloader_cache_path}/test.pkl")
 
     train_loader = get_train_loader(train_nlq, batch_size=1)
     val_loader = get_test_loader(val_nlq, batch_size=1)
@@ -60,7 +64,7 @@ def get_dataloader(args):
 
     video_feature_size, query_feature_size = 2304, 768# train_nlq.video_feature_size, train_nlq.query_feature_size TODO
     print("Finished loading data")
-    return train_loader, val_loader, test_loader, video_feature_size, query_feature_size
+    return train_loader, val_loader, test_loader, video_feature_size, query_feature_size, val_nlq, test_nlq
 
 def init_model(args):
     print("Initializing model")
@@ -118,15 +122,16 @@ def train(model, dataloader, model_loss, optimizer, args, writer, epoch):
         n_iter = epoch * len(dataloader) + iter
         # if n_iter % args.log_interval == 0:
         writer.add_scalar('Loss/train', loss.detach().cpu().item(), n_iter)
-            # wandb.log({"loss": loss.detach().cpu().item()}, step=n_iter)
+        wandb.log({"batch loss/train": loss.detach().cpu().item()})
         iter += 1
 
         # end train loop
     print("Train Examples = ", ns)
+    wandb.log({f"loss/train": total_loss})
 
     return total_loss
 
-def test(model, dataloader, model_loss, args, writer, epoch):
+def test(model, dataloader, model_loss, args, writer, epoch, Test = False):
     model.eval()
     qa_pipeline = pipeline("question-answering")
     tqdm_obj = tqdm(
@@ -168,40 +173,66 @@ def test(model, dataloader, model_loss, args, writer, epoch):
         # Logging
         total_loss += loss.cpu().item()
         n_iter = epoch * len(dataloader) + iter
-        writer.add_scalar('Loss/val', loss.cpu().item(), n_iter)
+        split = "test" if Test else "val"
+        writer.add_scalar(f'Loss/{split}', loss.cpu().item(), n_iter)
+        wandb.log({f"batch loss/{split}": loss.cpu().item()})
+
         iter += 1
 
         # end val loop
     print("Test/Val Examples = ", ns)
+    wandb.log({f"loss/{split}": total_loss})
+
     return total_loss, records
 
 def initialise_wandb(args,model):
-    wandb.init(project="ego4d", config={
+    wandb.init(project=f"ego4d_{args.prefix}", config={
         "learning_rate": args.learning_rate,
         "batch_size": args.batch_size,
         "num_epochs": args.num_epochs,
         "hidden_size": args.hidden_size
     })
+    if args.wandb_name is not None:
+        wandb.run.name = args.wandb_name
+        wandb.run.save()
+
     wandb.watch(model)
+
+def cache_records_and_evaluate(records, epoch, n_iter, args, nlq_data, writer, test=False):
+    if not os.path.exists(args.record_path):
+        os.makedirs(args.record_path)
+    folder_name = f"{args.prefix}_{args.wandb_name}" if args.wandb_name is not None else args.prefix
+    if not os.path.exists(os.path.join(args.record_path, folder_name)):
+        os.makedirs(os.path.join(args.record_path, folder_name))
+    file_name = f"{folder_name}/records_{epoch}.json" if not test else f"{folder_name}/records_test_{epoch}.json"
+    with open(os.path.join(args.record_path, file_name), "w") as f:
+        json.dump(records, f, indent=4)
+    
+    # gt_file = args.input_val_split if not test else args.input_test_split
+    _, mIoU, score_str, metric_dict = evaluate_predicted_records(records, epoch, args.input_val_split, nlq_data)
+    for metric, value in metric_dict.items():
+        split = "val" if not test else "test"
+        # writer.add_scalar(f"{metric}/{split}", value, epoch)
+        wandb.log({f"{metric}/{split}": value})
+        # wandb.run.summary[f"{metric}/{split}"] = value
+    
+    # print(score_str)
+    return mIoU
+
 
 if __name__ == "__main__":
     args = parse_args()
-    train_loader, val_loader, test_loader, video_feature_size, query_feature_size = get_dataloader(args)
+    train_loader, val_loader, test_loader, video_feature_size, query_feature_size, val_nlq, test_nlq = get_dataloader(args)
     args.embedding_dim = video_feature_size + query_feature_size
     model, model_loss, optimizer = init_model(args)
-    # initialise_wandb(args,model)
+    initialise_wandb(args,model)
     writer = SummaryWriter()
 
     for epoch in range(args.num_epochs):
         train_loss = train(model, train_loader, model_loss, optimizer, args, writer, epoch)
         val_loss, records = test(model, val_loader, model_loss, args, writer, epoch)
-        if not os.path.exists(args.record_path):
-            os.makedirs(args.record_path)
-        with open(os.path.join(args.record_path, f"records_{epoch}.json"), "w") as f:
-            json.dump(records, f, indent=4)
-
+        val_mIoU = cache_records_and_evaluate(records, epoch, epoch * len(val_loader),args, val_nlq, writer)
         #evaluate
         #test if better results
-        test_loss, records = test(model, test_loader, model_loss, args, writer, epoch)
-        with open(os.path.join(args.record_path, f"records_test_{epoch}.json"), "w") as f:
-            json.dump(records, f, indent=4)
+        test_loss, records = test(model, test_loader, model_loss, args, writer, epoch, Test = True)
+        val_mIoU = cache_records_and_evaluate(records, epoch, epoch * len(test_loader), args, test_nlq, writer, test=True)

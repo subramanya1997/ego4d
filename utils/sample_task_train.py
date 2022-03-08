@@ -15,6 +15,7 @@ def get_filtered_video_metadata(video_ids, main_file = "/scratch/shantanuagar_um
         main_data = json.load(f)
     em_vids = {x['video_uid']:x for x in main_data['videos'] if x['video_uid'] in video_ids}
     print(len(em_vids), len(video_ids))
+
     return em_vids
 
 def get_metadata2uids(em_vids, test_file = None):
@@ -54,6 +55,25 @@ def get_audio_video_ids(file_= "data/annotations/nlq_train.json", folder="/scrat
 
     return vids_w_audio
 
+def get_stats(file_,folder):
+    with open(file_) as f:
+        data = json.load(f)
+
+    # Total Annotatations
+    clips = [y for x in data['videos'] for y in x['clips']]
+    annotations = [y for x in clips for y in x['annotations']]
+    print("#Videos in All Data:",len(data['videos']))
+    print("#Clips in All Data:",len(clips))
+    print("#Annotations in All Data:",len(annotations))
+
+    clips_with_audio = [x.split(".wav")[0] for x in os.listdir(folder) if x.endswith(".wav")]
+    all_clips_w_audio = [y for x in data['videos'] for y in x['clips'] if y['clip_uid'] in clips_with_audio]
+    vids_w_audio = [x['video_uid'] for x in data['videos'] if len(x['clips'])>0 and x['clips'][0]['clip_uid'] in clips_with_audio]
+    print("#Vids w Audio:",len(vids_w_audio))
+    print("#Clips w Audio:",len(all_clips_w_audio))
+    all_annotations_w_audio = [y for x in all_clips_w_audio for y in x['annotations']]
+    print("#Annotations w Audio:",len(all_annotations_w_audio))
+
 def save_sample_data(dict_list, main_file, save_file_ = "./data/annotations/sample/sample_nlq_train.json", sample_portion=0.10,audio_vids=None):
     sampled_vids = []
     print("Sampling:")
@@ -79,6 +99,7 @@ def save_sample_data(dict_list, main_file, save_file_ = "./data/annotations/samp
     with open(main_file) as f:
         main_data = json.load(f)
     
+
     main_data['videos'] = [x for x in main_data['videos'] if x['video_uid'] in sampled_vids]
     
     print("#Total Sampled Vids:",len(sampled_vids))
@@ -89,12 +110,14 @@ def save_sample_data(dict_list, main_file, save_file_ = "./data/annotations/samp
 if __name__ == "__main__":
     file_ = "data/annotations/nlq_train.json"
     audio_path = "/scratch/snagabhushan_umass_edu/dataset/v1/audio/"
-    save_file_ = "./data/annotations/sample/sample_nlq_train.json"
+    save_file_ = "./data/annotations/sample/sample_nlq_val.json"
     test_file = None
-    test_file = "./data/annotations/sample/sample_nlq_test.json"
+    # test_file = "./data/annotations/sample/sample_nlq_test.json"
     sample_percent = 0.1
+    get_stats(file_,audio_path)
     video_ids = get_task_video_ids(file_)
     em_vids = get_filtered_video_metadata(video_ids)
     dict_list = get_metadata2uids(em_vids, test_file = test_file)
     audio_vids = get_audio_video_ids(file_, audio_path, test_file = test_file)
     save_sample_data(dict_list, file_, audio_vids = audio_vids, save_file_ = save_file_, sample_portion=sample_percent)
+    get_stats(save_file_,audio_path)
