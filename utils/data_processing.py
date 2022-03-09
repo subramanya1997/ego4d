@@ -251,7 +251,7 @@ class Ego4d_NLQ(Dataset):
     def _load_config(self, path):
         print("Loading Config...")
         parser = argparse.ArgumentParser(description=__doc__)
-        parsed_args = parser.parse_args()
+        parsed_args = parser.parse_args([])
         with open(path, "r") as f:
             config = yaml.safe_load(f)
 

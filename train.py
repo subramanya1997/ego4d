@@ -19,7 +19,7 @@ from utils.metrics import decode_candidate_clips
 from utils.evaluate_records import evaluate_predicted_records
 from utils.data_processing import Ego4d_NLQ, get_train_loader, get_test_loader
 
-def parse_args():
+def parse_arguments():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "-c", "--config-file", help="Config File with all the parameters", default='config.yaml'
@@ -182,13 +182,14 @@ def test(model, dataloader, model_loss, args, writer, epoch, Test = False):
         # infer
         s, e, scores = infer_from_model(pred, args.topk, qa_pipeline)
         # print(sample_id, clip_id, torch.sum(ends))
+        end_idx = ends.shape[-1]-1 if torch.sum(ends) == 0 else np.where(ends.cpu().numpy() == 1)[-1][0]
         records.append({"sample_id": int(sample_id[0]), 
-                        "clip_id": str(clip_id),
+                        "clip_id": str(clip_id[0]),
                         "start": list([int(x) for x in s]), 
                         "end": list([int(x) for x in e]), 
                         "score": list([float(x) for x in scores]),
-                        "GT_starts": int(np.where(starts.cpu().numpy() == 1)[0][0]),
-                        "GT_ends": int(np.where(ends.cpu().numpy() == 1)[0][0]),
+                        "GT_starts": int(np.where(starts.cpu().numpy() == 1)[-1][0]),
+                        "GT_ends": int(end_idx),
                         "Loss": float(loss.cpu().item())})
 
         # Logging
@@ -230,7 +231,8 @@ def cache_records_and_evaluate(records, epoch, n_iter, args, nlq_data, writer, t
         json.dump(records, f, indent=4)
     
     # gt_file = args.input_val_split if not test else args.input_test_split
-    _, mIoU, score_str, metric_dict = evaluate_predicted_records(records, epoch, args.input_val_split, nlq_data)
+    gt_file = args.input_val_split if not test else args.input_test_split
+    _, mIoU, score_str, metric_dict = evaluate_predicted_records(records, epoch, gt_file, nlq_data)
     for metric, value in metric_dict.items():
         split = "val" if not test else "test"
         # writer.add_scalar(f"{metric}/{split}", value, epoch)
@@ -242,7 +244,7 @@ def cache_records_and_evaluate(records, epoch, n_iter, args, nlq_data, writer, t
 
 
 if __name__ == "__main__":
-    args = parse_args()
+    args = parse_arguments()
     args, train_loader, val_loader, test_loader, val_nlq, test_nlq = get_dataloader(args)
     # args.embedding_dim = args.video_feature_size + args.query_feature_size + args.audio_feature_size #TODO 
     args.embedding_dim = args.video_feature_size + args.query_feature_size 

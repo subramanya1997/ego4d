@@ -40,7 +40,7 @@ def parse_predictions(records, nlq_val):
 
     for record in records:
         clip_uid = record['clip_id']
-        clip_uid = clip_uid.split("'")[1]
+        # clip_uid = clip_uid.split("'")[1]
         sample_id = record['sample_id']
         values = nlq_val.getfromidx(sample_id)
 
