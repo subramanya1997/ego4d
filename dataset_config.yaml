@@ -16,4 +16,4 @@ min_frames: 5
 
 #load and save
 save_or_load: True
-update: False
+update: True

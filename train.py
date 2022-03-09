@@ -178,7 +178,7 @@ def test(model, dataloader, model_loss, args, writer, epoch, Test = False):
         with torch.no_grad():
             pred = model(input_features)
             loss = model_loss(pred, starts, ends, is_ans)
-
+            
         # infer
         s, e, scores = infer_from_model(pred, args.topk, qa_pipeline)
         # print(sample_id, clip_id, torch.sum(ends))
@@ -259,4 +259,4 @@ if __name__ == "__main__":
         #evaluate
         #test if better results
         test_loss, records = test(model, test_loader, model_loss, args, writer, epoch, Test = True)
-        val_mIoU = cache_records_and_evaluate(records, epoch, epoch * len(test_loader), args, test_nlq, writer, test=True)
+        #val_mIoU = cache_records_and_evaluate(records, epoch, epoch * len(test_loader), args, test_nlq, writer, test=True)
