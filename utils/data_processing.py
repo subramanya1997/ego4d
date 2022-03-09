@@ -198,6 +198,7 @@ class Ego4d_NLQ(Dataset):
         if query_features is not None:
             query_features = [query_features for item in range(s_v_idx, e_v_idx)]
         
+        print(s_v_idx, e_v_idx, sample_query['e_video_frame'], sample_query['s_video_frame'])
         is_s = [ (sample_query['s_video_frame'] == i) for i in range(s_v_idx, e_v_idx)]
         is_e = [ (sample_query['e_video_frame'] == i) for i in range(s_v_idx, e_v_idx)]
         is_ans = [ (sample_query['s_video_frame'] <= i and sample_query['e_video_frame'] >= i) for i in range(s_v_idx, e_v_idx)]
@@ -319,13 +320,13 @@ class Ego4d_NLQ(Dataset):
                         new_dict["timestamps"].append(
                             [
                                 self._get_nearest_video_frame(start_time, math.floor),
-                                self._get_nearest_video_frame(end_time, math.ceil),
+                                self._get_nearest_video_frame(end_time, math.ceil) if self._get_nearest_video_frame(end_time, math.ceil) < (num_frames-1) else self._get_nearest_video_frame(end_time, math.ceil)-1,
                             ]
                         ),
                         new_dict["a_timestamps"].append(
                             [
                                 self._get_nearest_audio_frame(start_time, math.floor),
-                                self._get_nearest_audio_frame(end_time, math.ceil),
+                                self._get_nearest_audio_frame(end_time, math.ceil) if self._get_nearest_audio_frame(end_time, math.ceil) < (a_num_frames-1) else self._get_nearest_audio_frame(end_time, math.ceil)-1,
                             ]
                         )
                 formatted_data[clip_uid] = new_dict
