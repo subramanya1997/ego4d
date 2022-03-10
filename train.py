@@ -1,4 +1,5 @@
 import os
+import sys
 import json
 import yaml
 import argparse
@@ -18,6 +19,8 @@ from model.meme_loss import MEME_LOSS
 from utils.metrics import decode_candidate_clips
 from utils.evaluate_records import evaluate_predicted_records
 from utils.data_processing import Ego4d_NLQ, get_train_loader, get_test_loader
+
+ISSUE_CIDS = {}
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -117,6 +120,7 @@ def train(model, dataloader, model_loss, optimizer, args, writer, epoch):
     iter = 0
     total_loss = 0
     ns = 0
+    issue_cids = []
     for data in tqdm_obj:
         (_, clip_id, features, audio_features, query_emb, starts, ends, is_ans, _) = data
         ns += 1
@@ -128,7 +132,10 @@ def train(model, dataloader, model_loss, optimizer, args, writer, epoch):
         ends = ends.to(args.device)
         is_ans = is_ans.to(args.device)
 
-        
+        if torch.sum(ends)==0:
+            if epoch==0:
+                issue_cids.append(clip_id)
+            ends[-1][-1] = 1.0
         # input_features = torch.cat((features, audio_features, query_emb), dim=-1) # TODO
         input_features = torch.cat((features, query_emb), dim=-1)
         pred = model(input_features)
@@ -150,6 +157,8 @@ def train(model, dataloader, model_loss, optimizer, args, writer, epoch):
     print("Train Examples = ", ns)
     wandb.log({f"loss/train": total_loss})
 
+    if epoch==0:
+        ISSUE_CIDS['train'] = issue_cids
     return total_loss
 
 def test(model, dataloader, model_loss, args, writer, epoch, Test = False):
@@ -202,7 +211,8 @@ def test(model, dataloader, model_loss, args, writer, epoch, Test = False):
         iter += 1
 
         # end val loop
-    print("Test/Val Examples = ", ns)
+    split = "Test" if Test else "Val"
+    print(split, " Examples = ", ns)
     wandb.log({f"loss/{split}": total_loss})
 
     return total_loss, records
@@ -229,6 +239,7 @@ def cache_records_and_evaluate(records, epoch, n_iter, args, nlq_data, writer, t
     file_name = f"{folder_name}/records_{epoch}.json" if not test else f"{folder_name}/records_test_{epoch}.json"
     with open(os.path.join(args.record_path, file_name), "w") as f:
         json.dump(records, f, indent=4)
+    sys.stdout.flush()
     
     # gt_file = args.input_val_split if not test else args.input_test_split
     gt_file = args.input_val_split if not test else args.input_test_split
@@ -259,4 +270,5 @@ if __name__ == "__main__":
         #evaluate
         #test if better results
         test_loss, records = test(model, test_loader, model_loss, args, writer, epoch, Test = True)
+        print("Issue Clip IDs=",ISSUE_CIDS)
         #val_mIoU = cache_records_and_evaluate(records, epoch, epoch * len(test_loader), args, test_nlq, writer, test=True)
