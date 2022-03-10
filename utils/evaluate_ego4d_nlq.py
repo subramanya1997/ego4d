@@ -92,6 +92,7 @@ def evaluate_nlq_performance(
     results = [[[] for _ in topK] for _ in thresholds]
     average_IoU = []
     num_instances = 0
+    
     for pred_datum in predictions:
         key = (pred_datum["clip_uid"], pred_datum["annotation_uid"])
         assert key in gt_dict, "Instance not present!"

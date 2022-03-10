@@ -11,13 +11,13 @@ force_cpu: false
 log_interval: 100
 ## data stuff
 update_dataloader: False
-dataloader_cache_path: /scratch/snagabhushan_umass_edu/dataset/v1/save/nlq/
+dataloader_cache_path: /scratch/snagabhushan_umass_edu/dataset/v1/save/nlq
 dataloader_config: ./dataset_config.yaml
 
 # Video Preprocessing Parameters
-input_train_split: data/annotations/sample/sample_nlq_train.json
-input_val_split: data/annotations/sample/sample_nlq_val.json
-input_test_split: data/annotations/sample/sample_nlq_test.json
+input_train_split: /scratch/shantanuagar_umass_edu/ego4d/nlq/sample/sample_nlq_train.json
+input_val_split: /scratch/shantanuagar_umass_edu/ego4d/nlq/sample/sample_nlq_val.json
+input_test_split: /scratch/shantanuagar_umass_edu/ego4d/nlq/sample/sample_nlq_test.json
 video_feature_read_path: data/video_features/
 clip_feature_save_path: data/saved_clip_features/ # save path for output clip features
 output_save_path: data/nlq_official_v1 # save path for clip info along with train-val split

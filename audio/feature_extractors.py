@@ -51,12 +51,12 @@ def extract_features(paths, features_path, args):
     feature_sizes = {}
     for _filename, _path in tqdm(paths.items()):
         
-        if _filename in features_path:
-            _audio_data, _sample_rate = sf.read(_path)
-            _temp_fd = torch.load(features_path[_filename])
-            if (((_temp_fd.shape[0] // 49) * (_sample_rate/2)) - _sample_rate) <= _audio_data.shape[0]:
-                feature_sizes[_filename] = _temp_fd.shape[1]
-                continue
+        # if _filename in features_path:
+        #     _audio_data, _sample_rate = sf.read(_path)
+        #     _temp_fd = torch.load(features_path[_filename])
+        #     if (((_temp_fd.shape[0] // 49) * (_sample_rate/2)) - _sample_rate) <= _audio_data.shape[0]:
+        #         feature_sizes[_filename] = _temp_fd.shape[1]
+        #         continue
         
         dataset = Audio_clip(_path, processor)
         train_loader = DataLoader(
@@ -69,7 +69,8 @@ def extract_features(paths, features_path, args):
         for i in train_loader:
             with torch.no_grad():
                 temp = model(i.to(device)).last_hidden_state
-                audio_features.extend(torch.flatten(temp.to('cpu'), end_dim=1)) 
+                #audio_features.extend(torch.flatten(temp.to('cpu'), end_dim=1)) 
+                audio_features.extend(temp.to('cpu')) 
         audio_features = torch.stack(audio_features)
 
         feature_save_path = os.path.join(args["audio_feature_save_path"], _filename+".pt")    

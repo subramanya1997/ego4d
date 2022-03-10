@@ -10,7 +10,7 @@ import math
 
 def get_nearest_frame(time, floor_or_ceil=None):
     """Obtain the nearest frame for a given time, video fps, and feature window."""
-    return floor_or_ceil(int(time * 2)) * 49
+    return floor_or_ceil(int(time * 2))
 
 def load_json(path):
     with open(path, "r") as f:

@@ -198,7 +198,6 @@ class Ego4d_NLQ(Dataset):
         if query_features is not None:
             query_features = [query_features for item in range(s_v_idx, e_v_idx)]
         
-        print(s_v_idx, e_v_idx, sample_query['e_video_frame'], sample_query['s_video_frame'])
         is_s = [ (sample_query['s_video_frame'] == i) for i in range(s_v_idx, e_v_idx)]
         is_e = [ (sample_query['e_video_frame'] == i) for i in range(s_v_idx, e_v_idx)]
         is_ans = [ (sample_query['s_video_frame'] <= i and sample_query['e_video_frame'] >= i) for i in range(s_v_idx, e_v_idx)]

@@ -10,10 +10,10 @@ audio_window_size: 8000
 wordEmbedding_model: bert-base-uncased #model
 
 #filters
-number_of_sample: None 
+number_of_sample: 50 
 max_frames: 750 #None
 min_frames: 5
 
 #load and save
 save_or_load: True
-update: True
+update: False
