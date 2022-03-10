@@ -141,7 +141,7 @@ class Ego4d_NLQ(Dataset):
             if clip_feature is not None:
                 self.video_feature_size = clip_feature[0].shape[-1]
             if audio_features is not None:
-                self.audio_feature_size = audio_features[0].shape[-1]
+                self.audio_feature_size = audio_features[0][0].shape[-1]
             if query_features is not None:
                 self.query_feature_size = query_features[0].shape[-1]
         else:
@@ -191,8 +191,8 @@ class Ego4d_NLQ(Dataset):
                 clip_features = clip_features[ s_v_idx : e_v_idx , : ]
 
             if audio_path is not None:
-                    audio_features = torch.load(audio_path)
-                    audio_features = audio_features[ s_a_idx : e_a_idx , : ]
+                audio_features = torch.load(audio_path)
+                audio_features = audio_features[ s_a_idx : e_a_idx , : ]
 
         query_features = sample_query['query_features']
         if query_features is not None:
@@ -211,7 +211,7 @@ class Ego4d_NLQ(Dataset):
 
     def _get_nearest_audio_frame(self, time, floor_or_ceil=None):
         """Obtain the nearest frame for a given time, audio fps, and feature window."""
-        return floor_or_ceil(int(time * self.parsed_args.audio_fps / self.parsed_args.audio_window_size)) * 49
+        return floor_or_ceil(int(time * self.parsed_args.audio_fps / self.parsed_args.audio_window_size))
 
     def getfromidx(self, idx):
         """ Has to be updated """
