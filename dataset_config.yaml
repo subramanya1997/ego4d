@@ -6,7 +6,7 @@ audio_features_path: /scratch/snagabhushan_umass_edu/dataset/v1/audio_features/
 video_fps: 30
 video_window_size: 16
 audio_fps: 16000
-audio_window_size: 8000
+audio_window_size: 8533
 wordEmbedding_model: bert-base-uncased #model
 
 #filters
@@ -16,4 +16,4 @@ min_frames: 5
 
 #load and save
 save_or_load: True
-update: False
+update: True

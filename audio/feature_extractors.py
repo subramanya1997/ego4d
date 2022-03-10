@@ -15,7 +15,7 @@ import numpy as np
 
 
 class Audio_clip(Dataset):
-    def __init__(self, audio_path, processor, window = 8000, device='cpu' ):
+    def __init__(self, audio_path, processor, window = 8533, device='cpu' ):
         self.audio_data, self.sample_rate = sf.read(audio_path)
         self.processor = processor
         self._window = window
@@ -33,9 +33,9 @@ class Audio_clip(Dataset):
         return self.audio_data[idx]
         
     def _process_audio(self):
-        _extra = self.audio_data.shape[0] % self.sample_rate
+        _extra = (self.audio_data.shape[0] - self.sample_rate) % self._window
         #print(f'Appending { self.sample_rate - _extra } zeros')
-        self.audio_data = np.append(self.audio_data, np.zeros( self.sample_rate - _extra, dtype = self.audio_data.dtype))
+        self.audio_data = np.append(self.audio_data, np.zeros( self._window - _extra, dtype = self.audio_data.dtype))
         self.audio_data = sliding_window_view(self.audio_data, self.sample_rate )[:: self._window , :]
         self.audio_data = self.audio_data
         self.audio_shape = self.audio_data.shape
@@ -73,7 +73,7 @@ def extract_features(paths, features_path, args):
                 audio_features.extend(temp.to('cpu')) 
         audio_features = torch.stack(audio_features)
 
-        feature_save_path = os.path.join(args["audio_feature_save_path"], _filename+".pt")    
+        feature_save_path = os.path.join(args["audio_feature_save_path"], _filename+".pt")  
         torch.save(audio_features.to('cpu'), feature_save_path)
         
         feature_sizes[_filename] = audio_features.shape[1]

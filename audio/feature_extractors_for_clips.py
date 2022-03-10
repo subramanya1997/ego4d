@@ -10,7 +10,7 @@ import math
 
 def get_nearest_frame(time, floor_or_ceil=None):
     """Obtain the nearest frame for a given time, video fps, and feature window."""
-    return floor_or_ceil(int(time * 2))
+    return floor_or_ceil(int(time * 30 / 16))
 
 def load_json(path):
     with open(path, "r") as f:
@@ -37,9 +37,8 @@ def getFeatures(args, paths):
                 clip_path = os.path.join(args['audio_feature_save_directory'], _cid+'.pt')
                 _vs_sec = get_nearest_frame(clip_data['video_start_sec'], math.floor)
                 _ve_sec = get_nearest_frame(clip_data['video_end_sec'], math.ceil)
-                _clip_audio_rep = audio_rep[_vs_sec:_ve_sec, :]
+                _clip_audio_rep = audio_rep[_vs_sec:_ve_sec + 1, :]
                 torch.save(_clip_audio_rep, clip_path)
-                #print(_cid, _vs_sec, _ve_sec, clip_data['video_start_sec'], clip_data['video_end_sec'], _clip_audio_rep.shape[0], _ve_sec-_vs_sec )
         
 
 

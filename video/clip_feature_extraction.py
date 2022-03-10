@@ -28,7 +28,7 @@ def getFeatures(args, paths):
                 clip_path = os.path.join(args['clip_feature_save_directory'], _cid+'.pt')
                 _vs_sec = get_nearest_frame(clip_data['video_start_sec'], math.floor)
                 _ve_sec = get_nearest_frame(clip_data['video_end_sec'], math.ceil)
-                _clip_rep = video_rep[_vs_sec:_ve_sec, :]
+                _clip_rep = video_rep[_vs_sec: _ve_sec +1, :]
                 torch.save(_clip_rep, clip_path)
                 #print(_cid, _vs_sec, _ve_sec, clip_data['video_start_sec'], clip_data['video_end_sec'], _clip_rep.shape[0], _ve_sec-_vs_sec )
 
