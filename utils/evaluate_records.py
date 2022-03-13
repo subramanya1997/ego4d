@@ -44,6 +44,10 @@ def parse_predictions(records, nlq_val):
         sample_id = record['sample_id']
         values = nlq_val.getfromidx(sample_id)
 
+        if len(record['start'])==0: # TODO this should not happen
+            print("No start time in record for clip ", clip_uid)
+            continue
+
         timewindow_predictions = []
         for s,e in zip(record['start'], record['end']):
             start_time, end_time = index_to_time(s, e)

@@ -31,6 +31,7 @@ def parse_arguments():
     parser.add_argument("--force-cpu", help="enforce cpu computation", type=int, default=None)
     parser.add_argument("-r", "--record-path", help="path for saving records", type=str, default='output/records/')
     parser.add_argument("-p", "--prefix", help="prefix for this run", type=str, default='meme')
+    parser.add_argument("-l", "--loss-type", help="loss type to use", type=str, default='hard_qa')
     parser.add_argument("-w", "--wandb-name", \
                         help="wandb name for this run, defaults to random names by wandb",\
                         type=str, default=None)
@@ -139,7 +140,7 @@ def train(model, dataloader, model_loss, optimizer, args, writer, epoch):
         # input_features = torch.cat((features, audio_features, query_emb), dim=-1) # TODO
         input_features = torch.cat((features, query_emb), dim=-1)
         pred = model(input_features)
-        loss = model_loss(pred, starts, ends, is_ans)
+        loss = model_loss(pred, starts, ends, is_ans, loss_type = args.loss_type)
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
@@ -161,7 +162,7 @@ def train(model, dataloader, model_loss, optimizer, args, writer, epoch):
         ISSUE_CIDS['train'] = issue_cids
     return total_loss
 
-def test(model, dataloader, model_loss, args, writer, epoch, Test = False):
+def test_model(model, dataloader, model_loss, args, writer, epoch, Test = False):
     model.eval()
     qa_pipeline = pipeline("question-answering")
     tqdm_obj = tqdm(
@@ -265,10 +266,10 @@ if __name__ == "__main__":
 
     for epoch in range(args.num_epochs):
         train_loss = train(model, train_loader, model_loss, optimizer, args, writer, epoch)
-        val_loss, records = test(model, val_loader, model_loss, args, writer, epoch)
+        val_loss, records = test_model(model, val_loader, model_loss, args, writer, epoch)
         val_mIoU = cache_records_and_evaluate(records, epoch, epoch * len(val_loader),args, val_nlq, writer)
         #evaluate
         #test if better results
-        test_loss, records = test(model, test_loader, model_loss, args, writer, epoch, Test = True)
+        test_loss, records = test_model(model, test_loader, model_loss, args, writer, epoch, Test = True)
         print("Issue Clip IDs=",ISSUE_CIDS)
-        #val_mIoU = cache_records_and_evaluate(records, epoch, epoch * len(test_loader), args, test_nlq, writer, test=True)
+        val_mIoU = cache_records_and_evaluate(records, epoch, epoch * len(test_loader), args, test_nlq, writer, test=True)
