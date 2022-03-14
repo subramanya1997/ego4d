@@ -6,6 +6,31 @@ def decode_candidate_clips(qa_pipeline, start, end, topk = 5, max_len = None):
     s, e, scores = qa_pipeline.decode(start, end,topk=topk,max_answer_len=max_len, undesired_tokens=mask)
     return s, e, scores
 
+def get_best_segment(preds, topk=5):
+    # find longest sequence with max log sum score
+    mask = preds>0.5
+    log_pred = np.log(preds)
+    segments = []
+    i=0
+    start = -1
+    end = -1
+    while i<log_pred.shape[1]:
+        if not mask[0,i]:
+            i+=1
+            continue
+        score = 0
+        start = i
+        while i<log_pred.shape[1] and mask[0,i]:
+            score += log_pred[0, i]
+            i+=1
+        end = i-1
+        segments.append((score, start, end))
+
+    segments = sorted(segments, key=lambda x: x[0], reverse=True)
+    starts = [x[1] for x in segments[:topk]]
+    ends = [x[2] for x in segments[:topk]]
+    scores = [x[0] for x in segments[:topk]]
+    return starts, ends, scores
 
 # def eval_test(
 #     result_save_path=None,

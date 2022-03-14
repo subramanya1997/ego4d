@@ -16,7 +16,7 @@ from transformers import pipeline
 
 from model.meme import MEME
 from model.meme_loss import MEME_LOSS
-from utils.metrics import decode_candidate_clips
+from utils.metrics import decode_candidate_clips, get_best_segment
 from utils.evaluate_records import evaluate_predicted_records
 from utils.data_processing import Ego4d_NLQ, get_train_loader, get_test_loader
 
@@ -31,7 +31,7 @@ def parse_arguments():
     parser.add_argument("--force-cpu", help="enforce cpu computation", type=int, default=None)
     parser.add_argument("-r", "--record-path", help="path for saving records", type=str, default='output/records/')
     parser.add_argument("-p", "--prefix", help="prefix for this run", type=str, default='meme')
-    parser.add_argument("-l", "--loss-type", help="loss type to use", type=str, default='hard_qa')
+    parser.add_argument("-l", "--loss-type", help="loss type to use", type=str, default='pos_loss')
     parser.add_argument("-w", "--wandb-name", \
                         help="wandb name for this run, defaults to random names by wandb",\
                         type=str, default=None)
@@ -91,7 +91,8 @@ def infer_from_model(pred, topk, qa_pipeline):
     start = pred[:, 0].cpu().numpy()
     end = pred[:, 1].cpu().numpy()
     max_len = args.max_len
-    s, e, scores = decode_candidate_clips(qa_pipeline, start, end, topk, max_len)
+    # s, e, scores = decode_candidate_clips(qa_pipeline, start, end, topk, max_len)
+    s, e, scores = get_best_segment(pred[:,:,2].cpu().numpy(), topk)
     return s, e, scores
 
 def process_modality_features(clip_features, audio_features, query_features, starts, args, pooling_method = None):
@@ -248,7 +249,7 @@ def cache_records_and_evaluate(records, epoch, n_iter, args, nlq_data, writer, t
     for metric, value in metric_dict.items():
         split = "val" if not test else "test"
         # writer.add_scalar(f"{metric}/{split}", value, epoch)
-        wandb.log({f"{metric}/{split}": value})
+        wandb.log({f"{split}/{metric}": value})
         # wandb.run.summary[f"{metric}/{split}"] = value
     
     # print(score_str)

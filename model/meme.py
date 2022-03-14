@@ -32,13 +32,13 @@ class MEME(nn.Module):
             nn.ReLU(),
             nn.Linear(int(self.hidden_size/2), 1)
         )
-
+        self.apply(init_weights)
         
     def forward(self, x, infer=True):
         output = self.model(x)
         start_output = self.start_head(output)
         end_output = self.end_head(output)
-        ans_output = self.ans_head(output)
+        ans_output = self.ans_head(output)*10
         
         if infer:
             start_output = F.softmax(start_output, dim=1)
@@ -47,3 +47,8 @@ class MEME(nn.Module):
 
         output = torch.cat((start_output, end_output, ans_output), dim=-1)
         return output
+
+def init_weights(m):
+    if isinstance(m, nn.Linear):
+        torch.nn.init.xavier_uniform(m.weight)
+        m.bias.data.fill_(0.01)
