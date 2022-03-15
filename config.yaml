@@ -13,6 +13,7 @@ log_interval: 100
 update_dataloader: False
 dataloader_cache_path: /scratch/snagabhushan_umass_edu/dataset/v1/save/nlq
 dataloader_config: ./dataset_config.yaml
+model_save_path: /scratch/shantanuagar_umass_edu/ego4d/model/nlq/
 
 # Video Preprocessing Parameters
 input_train_split: /scratch/shantanuagar_umass_edu/ego4d/nlq/sample/sample_nlq_train.json

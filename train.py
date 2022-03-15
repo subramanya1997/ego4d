@@ -22,6 +22,15 @@ from utils.data_processing import Ego4d_NLQ, get_train_loader, get_test_loader
 
 ISSUE_CIDS = {}
 
+'''
+https://stackoverflow.com/a/31347222/4706073
+'''
+def add_bool_arg(parser, name, default=False):
+    group = parser.add_mutually_exclusive_group(required=False)
+    group.add_argument('--' + name, dest=name, action='store_true')
+    group.add_argument('--no-' + name, dest=name, action='store_false')
+    parser.set_defaults(**{name:default})
+
 def parse_arguments():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -35,6 +44,8 @@ def parse_arguments():
     parser.add_argument("-w", "--wandb-name", \
                         help="wandb name for this run, defaults to random names by wandb",\
                         type=str, default=None)
+    parser.add_argument("--model-save-path", help="path of the directory with model checkpoint", type=str, default=None)
+    add_bool_arg(parser, 'resume', default=False)
     try:
         parsed_args = parser.parse_args()
     except (IOError) as msg:
@@ -49,12 +60,39 @@ def parse_arguments():
         if key not in parsed_args.__dict__ or parsed_args.__dict__[key] is None:
             parsed_args.__dict__[key] = value
     
+    # set best checkpoint and last checkpoint paths
+    if parsed_args.model_save_path is None:
+        parsed_args.model_save_path = "./output/models/"
+    parsed_args.best_model_path = os.path.join(parsed_args.model_save_path, f"{parsed_args.prefix}_{parsed_args.wandb_name}_best.pth")
+    parsed_args.last_model_path = os.path.join(parsed_args.model_save_path, f"{parsed_args.prefix}_{parsed_args.wandb_name}_last.pth")
+
     if not parsed_args.force_cpu:
         parsed_args.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     print("Parsed Arguments are - ", parsed_args)
 
     return parsed_args
+
+def save_checkpoint(model, optimizer, epoch, loss, mIoU, path):
+    torch.save({ # Save our checkpoint loc
+            'epoch': epoch,
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'loss': loss,
+            'mIoU': mIoU
+            }, path)
+    wandb.save(path)
+
+def load_checkpoint(model, optimizer, path):
+    wandb.restore(path)
+    checkpoint = torch.load(path)
+    model.load_state_dict(checkpoint['model_state_dict'])
+    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    epoch = checkpoint['epoch']
+    loss = checkpoint['loss']
+    mIoU = checkpoint['mIoU']
+    print(f"Loaded checkpoint from {path}")
+    return model, optimizer, epoch, loss, mIoU
 
 def get_dataloader(args):
     print("Loading data")
@@ -225,7 +263,7 @@ def initialise_wandb(args,model):
         "batch_size": args.batch_size,
         "num_epochs": args.num_epochs,
         "hidden_size": args.hidden_size
-    })
+    },resume = args.resume)
     if args.wandb_name is not None:
         wandb.run.name = args.wandb_name
         wandb.run.save()
@@ -264,13 +302,23 @@ if __name__ == "__main__":
     model, model_loss, optimizer = init_model(args)
     initialise_wandb(args,model)
     writer = SummaryWriter()
+    best_mIoU = 0
+    start_epoch = 0
 
-    for epoch in range(args.num_epochs):
+    if wandb.run.resumed or args.resume:
+        model, optimizer, start_epoch, loss, best_mIoU = load_checkpoint(model, optimizer, args.last_model_path)
+
+    for epoch in range(start_epoch, args.num_epochs):
         train_loss = train(model, train_loader, model_loss, optimizer, args, writer, epoch)
         val_loss, records = test_model(model, val_loader, model_loss, args, writer, epoch)
         val_mIoU = cache_records_and_evaluate(records, epoch, epoch * len(val_loader),args, val_nlq, writer)
-        #evaluate
-        #test if better results
+
+        if val_mIoU > best_mIoU:
+            best_mIoU = val_mIoU
+            save_checkpoint(model, optimizer, epoch, val_loss, best_mIoU, args.best_model_path)
+
+        save_checkpoint(model, optimizer, epoch, val_loss, best_mIoU, args.last_model_path)
+
         test_loss, records = test_model(model, test_loader, model_loss, args, writer, epoch, Test = True)
         print("Issue Clip IDs=",ISSUE_CIDS)
         val_mIoU = cache_records_and_evaluate(records, epoch, epoch * len(test_loader), args, test_nlq, writer, test=True)
