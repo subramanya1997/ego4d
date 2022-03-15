@@ -202,8 +202,13 @@ class Ego4d_NLQ(Dataset):
         is_e = [ (sample_query['e_video_frame'] == i) for i in range(s_v_idx, e_v_idx)]
         is_ans = [ (sample_query['s_video_frame'] <= i and sample_query['e_video_frame'] >= i) for i in range(s_v_idx, e_v_idx)]
         frame_length = sample_query['video_frame_length']#[ sample_query['video_frame_length'] for i in range(s_v_idx, e_v_idx)]
+
+        info = {"Video Feature Size": self.video_feature_size,
+                "Audio Feature Size": self.audio_feature_size,
+                "Query Feature Size": self.query_feature_size,
+                "Frame length": frame_length}
         
-        return sample_id, clip_id, clip_features, audio_features, query_features, is_s, is_e, is_ans, frame_length
+        return sample_id, clip_id, clip_features, audio_features, query_features, is_s, is_e, is_ans, info
 
     def _get_nearest_video_frame(self, time, floor_or_ceil=None):
         """Obtain the nearest frame for a given time, video fps, and feature window."""
@@ -466,7 +471,7 @@ def get_test_loader(dataset, batch_size):
     return test_loader
 
 def train_collate_fn(batch):
-    sample_id, clip_id, clip_features, audio_features, query_features, is_s, is_e, is_ans, frame_length = zip(*batch)
+    sample_id, clip_id, clip_features, audio_features, query_features, is_s, is_e, is_ans, info = zip(*batch)
     if clip_features[0] is None: #TODO
         return clip_id, clip_features, query_features, is_s, is_e, is_ans #TODO
 
@@ -476,7 +481,10 @@ def train_collate_fn(batch):
     assert len(clip_features) == 1
     clip_features = torch.stack(clip_features)
 
-    # audio_features = torch.stack(audio_features) # TODO fix this for audio shape
+    default_audio = torch.zeros(clip_features[0].shape[0],info[0]['Audio Feature Size']).to(clip_features)
+    audio_features = [torch.mean(x,dim=1) if x is not None else default_audio for x in audio_features]
+    audio_features = torch.stack(audio_features)
+    
     #get only CLS embedding for query
     query_features = [torch.cat([y[:,0,:] for y in x],dim=0) for x in query_features]
     query_features = torch.stack(query_features)
@@ -484,6 +492,6 @@ def train_collate_fn(batch):
     is_s = torch.stack([torch.tensor(x) for x in is_s]).to(torch.float)
     is_e = torch.stack([torch.tensor(x) for x in is_e]).to(torch.float)
     is_ans = torch.stack([torch.tensor(x) for x in is_ans]).to(torch.float)
-    frame_length = torch.stack([torch.tensor(x) for x in frame_length])
+    # frame_length = torch.stack([torch.tensor(x) for x in frame_length])
 
-    return sample_id, clip_id, clip_features, audio_features, query_features, is_s, is_e, is_ans, frame_length
+    return sample_id, clip_id, clip_features, audio_features, query_features, is_s, is_e, is_ans, info
