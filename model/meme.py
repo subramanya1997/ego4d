@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from utils.data_processing import Modal
+
 class MEME(nn.Module):
     def __init__(self, args):
         super(MEME, self).__init__()
@@ -34,7 +36,12 @@ class MEME(nn.Module):
         )
         self.apply(init_weights)
         
-    def forward(self, x, infer=True):
+    def forward(self, features, query_emb, audio_features, modalities = None, infer=True):
+
+        x = torch.cat((features, query_emb), dim=-1)
+        if modalities is None or Modal._Audio in modalities:
+            x = torch.cat((x, audio_features), dim=-1)
+
         output = self.model(x)
         start_output = self.start_head(output)
         end_output = self.end_head(output)

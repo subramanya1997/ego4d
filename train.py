@@ -154,6 +154,12 @@ def process_batch(data, args):
     
     return (clip_id, input_features, starts, ends, is_ans)
 
+def modalities(args):
+    modals = [Modal._Video,Modal._Transcript]
+    if args.audio:
+        modals.append(Modal._Audio)
+    return modals
+
 def train(model, dataloader, model_loss, optimizer, args, writer, epoch):
     model.train()
     tqdm_obj = tqdm(
@@ -163,7 +169,6 @@ def train(model, dataloader, model_loss, optimizer, args, writer, epoch):
             )
     iter = 0
     total_loss = 0
-    ns = 0
     issue_cids = []
     for data in tqdm_obj:
         (_, clip_id, features, audio_features, query_emb, starts, ends, is_ans, _) = data
@@ -181,11 +186,7 @@ def train(model, dataloader, model_loss, optimizer, args, writer, epoch):
                 issue_cids.append(clip_id)
             ends[-1][-1] = 1.0
     
-        input_features = torch.cat((features, query_emb), dim=-1)
-        if args.audio:
-            input_features = torch.cat((input_features, audio_features), dim=-1)
-
-        pred = model(input_features)
+        pred = model(features, query_emb, audio_features, modalities = modalities(args))
         loss = model_loss(pred, starts, ends, is_ans, loss_type = args.loss_type)
         optimizer.zero_grad()
         loss.backward()
@@ -201,7 +202,6 @@ def train(model, dataloader, model_loss, optimizer, args, writer, epoch):
         iter += 1
 
         # end train loop
-    print("Train Examples = ", ns)
     wandb.log({f"loss/train": total_loss})
 
     if epoch==0:
@@ -219,22 +219,17 @@ def test_model(model, dataloader, model_loss, args, writer, epoch, Test = False)
     iter = 0
     total_loss = 0
     records = []
-    ns = 0
     for i, data in enumerate(tqdm_obj):
         (sample_id, clip_id, features, audio_features, query_emb, starts, ends, is_ans, _) = data
-        ns+=1
         features = features.to(args.device)
         audio_features = audio_features.to(args.device)
         query_emb = query_emb.to(args.device)
         starts = starts.to(args.device)
         ends = ends.to(args.device)
         is_ans = is_ans.to(args.device)
-        input_features = torch.cat((features, query_emb), dim=-1)
-        if args.audio:
-            input_features = torch.cat((input_features, audio_features), dim=-1)
 
         with torch.no_grad():
-            pred = model(input_features)
+            pred = model(features, query_emb, audio_features, modalities = modalities(args))
             loss = model_loss(pred, starts, ends, is_ans)
             
         # infer
@@ -261,7 +256,6 @@ def test_model(model, dataloader, model_loss, args, writer, epoch, Test = False)
 
         # end val loop
     split = "Test" if Test else "Val"
-    print(split, " Examples = ", ns)
     wandb.log({f"loss/{split}": total_loss})
 
     return total_loss, records
