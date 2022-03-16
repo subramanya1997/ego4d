@@ -154,7 +154,7 @@ def process_batch(data, args):
     
     return (clip_id, input_features, starts, ends, is_ans)
 
-def modalities(args):
+def get_modalities(args):
     modals = [Modal._Video,Modal._Transcript]
     if args.audio:
         modals.append(Modal._Audio)
@@ -186,7 +186,7 @@ def train(model, dataloader, model_loss, optimizer, args, writer, epoch):
                 issue_cids.append(clip_id)
             ends[-1][-1] = 1.0
     
-        pred = model(features, query_emb, audio_features, modalities = modalities(args))
+        pred = model(features, query_emb, audio_features, modalities = get_modalities(args))
         loss = model_loss(pred, starts, ends, is_ans, loss_type = args.loss_type)
         optimizer.zero_grad()
         loss.backward()

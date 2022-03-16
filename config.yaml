@@ -5,10 +5,12 @@ num_epochs: 50
 learning_rate: 0.001
 batch_size: 64
 topk: 5 
-boundary_smoothing: 9 #smooth over 10 features
+model: MLP
 ## others
 force_cpu: false
 log_interval: 100
+boundary_smoothing: 9 #smooth over 10 features # not needed anymore
+
 ## data stuff
 update_dataloader: False
 dataloader_cache_path: /scratch/snagabhushan_umass_edu/dataset/v1/save/nlq
