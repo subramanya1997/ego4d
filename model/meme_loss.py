@@ -8,7 +8,9 @@ class MEME_LOSS(nn.Module):
     def __init__(self, args):
         super(MEME_LOSS, self).__init__()
         self.loss_fn = nn.BCELoss()
+        self.ce_loss = nn.CrossEntropyLoss()
         self.boundary_smoothing = args.boundary_smoothing
+        self.model = args.model
         
     def forward(self, pred, target_start, target_end, target_in_range,loss_type='pos_loss'):
         if loss_type == 'hard_qa':
@@ -23,8 +25,13 @@ class MEME_LOSS(nn.Module):
         '''
         Compute the POS style loss with tag prediction
         '''
-        pred_scores = pred[:,:,2]
-        loss = self.loss_fn(pred_scores.reshape(-1), target_in_range.reshape(-1))
+        if self.model in ['MLP', 'MLP2']:
+            bs, l, c = pred.shape
+            pred_scores = pred[:,:,2]
+            loss = self.loss_fn(pred_scores.reshape(-1), target_in_range[:,:l].reshape(-1))
+        else:
+            bs, l, c = pred.shape
+            loss = self.ce_loss(pred.reshape(bs*l,-1),target_in_range[:,:l].reshape(-1).to(torch.long))
         return loss
 
     def em_joint_loss(self, pred, target_start, target_end, target_in_range):

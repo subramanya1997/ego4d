@@ -131,7 +131,7 @@ def infer_from_model(pred, topk, qa_pipeline):
     end = pred[:, 1].cpu().numpy()
     max_len = args.max_len
     # s, e, scores = decode_candidate_clips(qa_pipeline, start, end, topk, max_len)
-    s, e, scores = get_best_segment(pred[:,:,2].cpu().numpy(), topk)
+    s, e, scores = get_best_segment(pred[:,:,-1].cpu().numpy(), topk)
     return s, e, scores
 
 def process_batch(data, args):
@@ -148,11 +148,7 @@ def process_batch(data, args):
     if torch.sum(ends)==0:
         ends[-1][-1] = 1.0
 
-    input_features = torch.cat((features, query_emb), dim=-1)
-    if args.audio:
-        input_features = torch.cat((input_features, audio_features), dim=-1)
-    
-    return (clip_id, input_features, starts, ends, is_ans)
+    return (clip_id, features, audio_features, query_emb, starts, ends, is_ans)
 
 def get_modalities(args):
     modals = [Modal._Video,Modal._Transcript]
@@ -229,7 +225,7 @@ def test_model(model, dataloader, model_loss, args, writer, epoch, Test = False)
         is_ans = is_ans.to(args.device)
 
         with torch.no_grad():
-            pred = model(features, query_emb, audio_features, modalities = modalities(args))
+            pred = model(features, query_emb, audio_features, modalities = get_modalities(args))
             loss = model_loss(pred, starts, ends, is_ans)
             
         # infer
@@ -265,8 +261,9 @@ def initialise_wandb(args,model):
         "learning_rate": args.learning_rate,
         "batch_size": args.batch_size,
         "num_epochs": args.num_epochs,
-        "hidden_size": args.hidden_size
-    },resume = args.resume)
+        "hidden_size": args.hidden_size,
+        "dropout": args.dropout,
+    },resume = args.resume,settings=wandb.Settings(start_method="fork"))
     if args.wandb_name is not None:
         wandb.run.name = args.wandb_name
         wandb.run.save()

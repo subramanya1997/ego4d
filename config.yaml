@@ -5,7 +5,10 @@ num_epochs: 50
 learning_rate: 0.001
 batch_size: 64
 topk: 5 
-model: MLP
+model: MLP2_transformer
+clip_window: 1000
+dropout: 0.1
+
 ## others
 force_cpu: false
 log_interval: 100
@@ -16,6 +19,7 @@ update_dataloader: False
 dataloader_cache_path: /scratch/snagabhushan_umass_edu/dataset/v1/save/nlq
 dataloader_config: ./dataset_config.yaml
 model_save_path: /scratch/shantanuagar_umass_edu/ego4d/model/nlq/
+
 
 # Video Preprocessing Parameters
 input_train_split: /scratch/shantanuagar_umass_edu/ego4d/nlq/sample/sample_nlq_train.json
