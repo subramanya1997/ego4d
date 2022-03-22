@@ -10,11 +10,9 @@ import math
 import enum
 import os
 import re
+from tqdm import tqdm
 
-import sys 
-sys.path.append(r'../utils')
-
-from utils.data_utils import load_pickle, save_pickle
+from data_utils import load_pickle, save_pickle
 
 class Modal(enum.Enum):
     _Video = 1
@@ -77,6 +75,8 @@ class MEMEDataLoader(Dataset):
         print(f"#{self.split} Final Frames after filters: {self.idx_frames_filter}")
         print(f"#{self.split} Final Videos after filters: {len(self.data)}")
         print(f"#{self.split} Final Narrations after filters: {self.narrationCount_afterFilter}")
+
+        self.save_data(f'{self.parsed_args.save_or_load_path}_{self.split}.pkl')
         
     def __len__(self):
         return len(self.data)
@@ -152,32 +152,21 @@ class MEMEDataLoader(Dataset):
     def _process_narration(self, jsonData):
         """Process Narration json"""
         print("Processing Narration data...")
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        print(f'{device}')
-        tokenizer = BertTokenizer.from_pretrained(self.parsed_args.wordEmbedding_model)
-        model = BertModel.from_pretrained(self.parsed_args.wordEmbedding_model, output_hidden_states = True ).to(device) # Whether the model returns all hidden-states.
-        model.eval()
 
-        for vid, values in jsonData.items():
+        for vid, values in tqdm(jsonData.items()):
             videoNarrData = defaultdict(list)
             narrCount = 0
             if 'narration_pass_1' in values:
                 for i in values['narration_pass_1']['narrations']:
                     _text = re.sub('(#[a-zA-Z]*)', '', i['narration_text']).strip()
-                    inputText = tokenizer(_text, return_tensors='pt').to(device)
-                    with torch.no_grad():
-                        i['textFeatures'] = model(**inputText).last_hidden_state.to('cpu')
-
+                    i['narration_text_simplified'] = _text
                     videoNarrData[self._get_nearest_video_frame(i['timestamp_sec'], math.floor)].append(i)
                     narrCount+=1
 
             if 'narration_pass_2' in values:
                 for i in values['narration_pass_2']['narrations']:
                     _text = re.sub('(#[a-zA-Z]*)', '', i['narration_text']).strip()
-                    inputText = tokenizer(_text, return_tensors='pt').to(device)
-                    with torch.no_grad():
-                        i['textFeatures'] = model(**inputText).last_hidden_state.to('cpu')
-
+                    i['narration_text_simplified'] = _text
                     videoNarrData[self._get_nearest_video_frame(i['timestamp_sec'], math.floor)].append(i)
                     narrCount+=1
 
@@ -189,9 +178,25 @@ class MEMEDataLoader(Dataset):
     def _process_data(self, jsonData):
         """Process the entire json"""
         print("Processing ego4D json data...")
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        print(f'{device}')
+        tokenizer = BertTokenizer.from_pretrained(self.parsed_args.wordEmbedding_model)
+        model = BertModel.from_pretrained(self.parsed_args.wordEmbedding_model, output_hidden_states = True ).to(device) # Whether the model returns all hidden-states.
+        model.eval()
+
         for i, data in enumerate(jsonData['videos']):
 
             _vid = data['video_uid']
+
+            _narr = self.narrationData[_vid]
+            for frameNo, narrs in tqdm(_narr.items()):
+                if frameNo == 'Total':
+                    continue
+                for i, narrData in enumerate(narrs):
+                    _text = narrData['narration_text_simplified']
+                    inputText = tokenizer(_text, return_tensors='pt').to(device)
+                    with torch.no_grad():
+                        _narr[frameNo][i]['textFeatures'] = model(**inputText).last_hidden_state.to('cpu')
 
             clip_path = os.path.join(self.videos_path, _vid+'.pt')
             if not os.path.exists(clip_path):
@@ -207,6 +212,7 @@ class MEMEDataLoader(Dataset):
                 "total_feature_vector": self._get_nearest_video_frame(data['duration_sec'], math.floor)+1,
                 "video_path": clip_path,
                 "audio_path": audio_path,
+                "Narration": _narr,
             }
             self.sample_query_map[self.idx_sample_query] = record
             self.idx_sample_query += 1
