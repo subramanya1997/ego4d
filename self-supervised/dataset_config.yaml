@@ -1,0 +1,21 @@
+#paths
+video_features_path: /scratch/snagabhushan_umass_edu/dataset/v1/clip_features/
+audio_features_path: /scratch/snagabhushan_umass_edu/dataset/v1/audio_features/
+narrations_path: /scratch/snagabhushan_umass_edu/dataset/v1/annotations/narration.json
+save_or_load_path: /scratch/snagabhushan_umass_edu/dataset/v1/save/self_supervised/
+
+#constants
+video_fps: 30
+video_window_size: 16
+audio_fps: 16000
+audio_window_size: 8533
+wordEmbedding_model: bert-base-uncased #model
+
+#filters
+number_of_sample: None
+max_frames: 5000 #None
+min_frames: 5
+
+#load and save
+save_or_load: True
+update: False

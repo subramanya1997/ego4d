@@ -1,0 +1,30 @@
+# Model Params
+## Hyperparams
+hidden_size: 1024
+num_epochs: 50
+learning_rate: 0.001
+batch_size: 64
+topk: 5 
+model: MLP2_transformer
+clip_window: 1000
+dropout: 0.1
+
+## others
+force_cpu: false
+log_interval: 100
+boundary_smoothing: 9 #smooth over 10 features # not needed anymore
+
+## data stuff
+update_dataloader: False
+dataloader_cache_path: /scratch/snagabhushan_umass_edu/dataset/v1/save/nlq
+dataloader_config: ./dataset_config.yaml
+model_save_path: /scratch/shantanuagar_umass_edu/ego4d/model/nlq/
+
+
+# Video Preprocessing Parameters
+input_train_split: /scratch/sreeragiyer_umass_edu/ego4d/samples/sample_ego4d_train.json
+input_val_split: /scratch/sreeragiyer_umass_edu/ego4d/samples/sample_ego4d_val.json
+input_test_split: /scratch/sreeragiyer_umass_edu/ego4d/samples/sample_ego4d_test.json
+video_feature_read_path: data/video_features/
+clip_feature_save_path: data/saved_clip_features/ # save path for output clip features
+output_save_path: data/nlq_official_v1 # save path for clip info along with train-val split
