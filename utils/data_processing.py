@@ -1,18 +1,19 @@
 #import libs
 import json
 import os
-from re import L
-from tqdm import tqdm
 import math
 import yaml
 import argparse
 import enum
 
-#import pytorch
+import numpy as np
+
+from re import L
+from tqdm import tqdm
+
 import torch
 from torch.utils.data import Dataset, DataLoader
 
-#import transformer
 from transformers import BertTokenizer, BertModel
 
 #import custom functions
@@ -409,10 +410,12 @@ class Ego4d_NLQ(Dataset):
                 e_audio_frame = num_audio_frames-1
 
                 if self.split == "train": #at test give the whole clip as input
-                    s_frame = max(0, timestamp[0]-5)
-                    e_frame = min(num_frames-1, timestamp[1]+5)
-                    s_audio_frame = max(0, a_timestamps[0]-5)
-                    e_audio_frame = min(num_audio_frames-1, a_timestamps[1]+5)
+                    #negative padding
+                    padding = random.randint(0,50)
+                    s_frame = max(0, timestamp[0]-padding)
+                    e_frame = min(num_frames-1, timestamp[1]+padding)
+                    s_audio_frame = max(0, a_timestamps[0]-padding)
+                    e_audio_frame = min(num_audio_frames-1, a_timestamps[1]+padding)
 
                 #tokenizer for bert with [cls] token
                 _query = sentence.strip().lower()
