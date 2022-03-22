@@ -43,6 +43,27 @@ class MEMEDataLoader(Dataset):
         self.split = split
         self.narrationCount_afterFilter = 0
         self.idx_frames_filter = 0
+
+        if self.parsed_args.save_or_load and not self.parsed_args.update and self.parsed_args.save_or_load_path is not None:
+            if os.path.exists(f'{self.parsed_args.save_or_load_path}_{self.split}.pkl'): #load
+                print(f"Loading datafile from {self.parsed_args.save_or_load_path}_{self.split}.pkl")
+                save_data = load_pickle(f'{self.parsed_args.save_or_load_path}_{self.split}.pkl')
+                self.idx_frames = save_data['idx_frames']
+                self.idx_sample_query = save_data['idx_sample_query']
+                self.narrationCount = save_data['narrationCount']
+                self.sample_query_map = save_data['sample_query_map']
+                self.narrationData = save_data['narrationData'] 
+
+                self._apply_filter(self.parsed_args)
+                print("Done Applying filters...")
+
+                print(f"#{self.split} Frames: {self.idx_frames}")
+                print(f"#{self.split} Videos: {self.idx_sample_query}")
+                print(f"#{self.split} Narrations: {self.narrationCount}")
+                print(f"#{self.split} Final Frames after filters: {self.idx_frames_filter}")
+                print(f"#{self.split} Final Videos after filters: {len(self.data)}")
+                print(f"#{self.split} Final Narrations after filters: {self.narrationCount_afterFilter}")
+                return
         
         assert (
             self.videos_path is not None
@@ -184,19 +205,26 @@ class MEMEDataLoader(Dataset):
         model = BertModel.from_pretrained(self.parsed_args.wordEmbedding_model, output_hidden_states = True ).to(device) # Whether the model returns all hidden-states.
         model.eval()
 
-        for i, data in enumerate(jsonData['videos']):
+        tqdm_obj = tqdm(
+                enumerate(jsonData['videos']),
+                total=len(jsonData['videos']),
+                desc="Videos",
+            )
+
+        for i, data in tqdm_obj:
 
             _vid = data['video_uid']
-
-            _narr = self.narrationData[_vid]
-            for frameNo, narrs in tqdm(_narr.items()):
-                if frameNo == 'Total':
-                    continue
-                for i, narrData in enumerate(narrs):
-                    _text = narrData['narration_text_simplified']
-                    inputText = tokenizer(_text, return_tensors='pt').to(device)
-                    with torch.no_grad():
-                        _narr[frameNo][i]['textFeatures'] = model(**inputText).last_hidden_state.to('cpu')
+            _narr = None
+            if _vid in self.narrationData:
+                _narr = self.narrationData[_vid]
+                for frameNo, narrs in _narr.items():
+                    if frameNo == 'Total':
+                        continue
+                    for i, narrData in enumerate(narrs):
+                        _text = narrData['narration_text_simplified']
+                        inputText = tokenizer(_text, return_tensors='pt').to(device)
+                        with torch.no_grad():
+                            _narr[frameNo][i]['textFeatures'] = model(**inputText).last_hidden_state.to('cpu')
 
             clip_path = os.path.join(self.videos_path, _vid+'.pt')
             if not os.path.exists(clip_path):
