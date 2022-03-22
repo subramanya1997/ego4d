@@ -8,6 +8,7 @@ import numpy as np
 from tqdm import tqdm
 from config import Config
 from collections import defaultdict
+import enum
 
 def readJsonFile(path="./dataset/tmp/ego4d.json"):
     with open(path) as jsonFile:
