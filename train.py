@@ -45,8 +45,9 @@ def parse_arguments():
                         help="wandb name for this run, defaults to random names by wandb",\
                         type=str, default=None)
     parser.add_argument("--model-save-path", help="path of the directory with model checkpoint", type=str, default=None)
+    parser.add_argument("--loss_weight", help="loss weight", type=float, default=0.25)
     add_bool_arg(parser, 'resume', default=False)
-    add_bool_arg(parser, 'audio', default=False)
+    add_bool_arg(parser, 'audio', default=True)
     try:
         parsed_args = parser.parse_args()
     except (IOError) as msg:
@@ -204,6 +205,13 @@ def train(model, dataloader, model_loss, optimizer, args, writer, epoch):
         ISSUE_CIDS['train'] = issue_cids
     return total_loss
 
+def calc_precision(pred, is_ans):
+    pred = pred.cpu().numpy()
+    _,l,_ = pred.shape
+    pred_ = np.argmax(pred,axis=2)
+    is_ans = is_ans.cpu().numpy()[:,:l]
+    return np.sum(pred_*is_ans)/np.sum(pred_)
+
 def test_model(model, dataloader, model_loss, args, writer, epoch, Test = False):
     model.eval()
     qa_pipeline = pipeline("question-answering")
@@ -215,6 +223,7 @@ def test_model(model, dataloader, model_loss, args, writer, epoch, Test = False)
     iter = 0
     total_loss = 0
     records = []
+    precision = []
     for i, data in enumerate(tqdm_obj):
         (sample_id, clip_id, features, audio_features, query_emb, starts, ends, is_ans, _) = data
         features = features.to(args.device)
@@ -232,6 +241,7 @@ def test_model(model, dataloader, model_loss, args, writer, epoch, Test = False)
         s, e, scores = infer_from_model(pred, args.topk, qa_pipeline)
         # print(sample_id, clip_id, torch.sum(ends))
         end_idx = ends.shape[-1]-1 if torch.sum(ends) == 0 else np.where(ends.cpu().numpy() == 1)[-1][0]
+        precision.append(calc_precision(pred, is_ans))
         records.append({"sample_id": int(sample_id[0]), 
                         "clip_id": str(clip_id[0]),
                         "start": list([int(x) for x in s]), 
@@ -253,6 +263,8 @@ def test_model(model, dataloader, model_loss, args, writer, epoch, Test = False)
         # end val loop
     split = "Test" if Test else "Val"
     wandb.log({f"loss/{split}": total_loss})
+    mean_avg_p = np.mean(precision)
+    wandb.log({f"{split}/MAP": mean_avg_p})
 
     return total_loss, records
 
@@ -263,6 +275,7 @@ def initialise_wandb(args,model):
         "num_epochs": args.num_epochs,
         "hidden_size": args.hidden_size,
         "dropout": args.dropout,
+        "loss_weight": args.loss_weight,
     },resume = args.resume,settings=wandb.Settings(start_method="fork"))
     if args.wandb_name is not None:
         wandb.run.name = args.wandb_name
