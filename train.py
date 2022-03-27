@@ -16,6 +16,7 @@ from transformers import pipeline
 
 from model.meme import MEME
 from model.meme_loss import MEME_LOSS
+from model.utils import fix_seed
 from utils.metrics import decode_candidate_clips, get_best_segment
 from utils.evaluate_records import evaluate_predicted_records
 from utils.data_processing import Ego4d_NLQ, get_train_loader, get_test_loader, Modal
@@ -264,6 +265,7 @@ def test_model(model, dataloader, model_loss, args, writer, epoch, Test = False)
     split = "Test" if Test else "Val"
     wandb.log({f"loss/{split}": total_loss})
     mean_avg_p = np.mean(precision)
+    split = "test" if Test else "val"
     wandb.log({f"{split}/MAP": mean_avg_p})
 
     return total_loss, records
@@ -308,6 +310,7 @@ def cache_records_and_evaluate(records, epoch, n_iter, args, nlq_data, writer, t
 
 
 if __name__ == "__main__":
+    fix_seed(1234)
     args = parse_arguments()
     args, train_loader, val_loader, test_loader, val_nlq, test_nlq = get_dataloader(args)
     args.embedding_dim = args.video_feature_size + args.query_feature_size 
