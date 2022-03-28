@@ -37,7 +37,7 @@ def init_custom_model(folder_path="output/models/model1", model_name= "meme"):
 def fix_seed(seed=0):
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
-    np.ranom.seed(seed)
+    np.random.seed(seed)
     random.seed(seed)
     torch.backends.cudnn.enabled=False
     torch.backends.cudnn.deterministic=True

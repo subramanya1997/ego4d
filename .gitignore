@@ -125,6 +125,7 @@ output/
 runs/
 wandb/
 test/
+sbatch/
 
 # VS Code debugger
 .vscode

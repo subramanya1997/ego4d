@@ -32,6 +32,46 @@ def get_best_segment(preds, topk=5):
     scores = [x[0] for x in segments[:topk]]
     return starts, ends, scores
 
+def get_best_scoring_segment(preds, topk=5):
+    '''
+    preds are logits
+    '''
+    assert preds.shape[0]==1
+    # find longest sequence with max log sum score
+    log_pred = np.log(preds[0])
+    zeros = log_pred[:,0]
+    ones = preds[0,:,1]
+
+    outer = np.matmul(np.expand_dims(ones[None], -1), np.expand_dims(ones[None], 1))
+    ones = np.log(outer+1e-10)[0]
+
+    zeros_f = np.cumsum(zeros)
+    zeros_f[1:] = zeros_f[:-1]
+    zeros_f[0] = 0
+    zeros_f = zeros_f[:,None]
+
+    zeros_b = np.cumsum(zeros[::-1])[::-1]
+    zeros_b[:-1] = zeros_b[1:]
+    zeros_b[-1] = 0
+    zeros_b = zeros_b[:,None]
+
+    scores = ones+zeros_f+zeros_b
+    candidates = np.tril(np.triu(scores), scores.shape[1])
+    candidates[candidates == 0] = -np.inf
+
+    scores_flat = candidates.flatten()
+    if topk == 1:
+        idx_sort = [np.argmax(scores_flat)]
+    elif len(scores_flat) < topk:
+        idx_sort = np.argsort(-scores_flat)
+    else:
+        idx = np.argpartition(-scores_flat, topk)[0:topk]
+        idx_sort = idx[np.argsort(-scores_flat[idx])]
+
+    starts, ends = np.unravel_index(idx_sort, candidates.shape)
+    scores = candidates[starts, ends]
+    return starts, ends, scores
+
 # def eval_test(
 #     result_save_path=None,
 #     gt_json_path=None,

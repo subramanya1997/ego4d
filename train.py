@@ -17,7 +17,7 @@ from transformers import pipeline
 from model.meme import MEME
 from model.meme_loss import MEME_LOSS
 from model.utils import fix_seed
-from utils.metrics import decode_candidate_clips, get_best_segment
+from utils.metrics import decode_candidate_clips, get_best_segment, get_best_scoring_segment
 from utils.evaluate_records import evaluate_predicted_records
 from utils.data_processing import Ego4d_NLQ, get_train_loader, get_test_loader, Modal
 
@@ -129,16 +129,17 @@ def init_model(args):
     return model, model_loss, optimizer
 
 def infer_from_model(pred, topk, qa_pipeline):
-    start = pred[:, 0].cpu().numpy()
-    end = pred[:, 1].cpu().numpy()
-    max_len = args.max_len
+    # start = pred[:, 0].cpu().numpy()
+    # end = pred[:, 1].cpu().numpy()
+    # max_len = args.max_len
     # s, e, scores = decode_candidate_clips(qa_pipeline, start, end, topk, max_len)
-    s, e, scores = get_best_segment(pred[:,:,-1].cpu().numpy(), topk)
+    # s, e, scores = get_best_segment(pred[:,:,-1].cpu().numpy(), topk)
+    pred_p = torch.nn.functional.softmax(pred, dim=-1)
+    s, e, scores = get_best_scoring_segment(pred_p.cpu().numpy(), topk)
     return s, e, scores
 
-def process_batch(data, args):
+def process_model_inputs(data, args):
     (_, clip_id, features, audio_features, query_emb, starts, ends, is_ans, _) = data
-    ns += 1
     # process_modality_features
     features = features.to(args.device)
     audio_features = audio_features.to(args.device)
@@ -150,7 +151,7 @@ def process_batch(data, args):
     if torch.sum(ends)==0:
         ends[-1][-1] = 1.0
 
-    return (clip_id, features, audio_features, query_emb, starts, ends, is_ans)
+    return features, audio_features, query_emb, starts, ends, is_ans
 
 def get_modalities(args):
     modals = [Modal._Video,Modal._Transcript]
@@ -170,19 +171,7 @@ def train(model, dataloader, model_loss, optimizer, args, writer, epoch):
     issue_cids = []
     for data in tqdm_obj:
         (_, clip_id, features, audio_features, query_emb, starts, ends, is_ans, _) = data
-        # (clip_id, input_features, starts, ends, is_ans) = process_batch(data, args)
-        # process_modality_features
-        features = features.to(args.device)
-        audio_features = audio_features.to(args.device)
-        query_emb = query_emb.to(args.device)
-        starts = starts.to(args.device)
-        ends = ends.to(args.device)
-        is_ans = is_ans.to(args.device)
-
-        if torch.sum(ends)==0:
-            if epoch==0:
-                issue_cids.append(clip_id)
-            ends[-1][-1] = 1.0
+        features, audio_features, query_emb, starts, ends, is_ans = process_model_inputs(data, args)
     
         pred = model(features, query_emb, audio_features, modalities = get_modalities(args))
         loss = model_loss(pred, starts, ends, is_ans, loss_type = args.loss_type)
@@ -215,7 +204,7 @@ def calc_precision(pred, is_ans):
 
 def test_model(model, dataloader, model_loss, args, writer, epoch, Test = False):
     model.eval()
-    qa_pipeline = pipeline("question-answering")
+    qa_pipeline = None # pipeline("question-answering")
     tqdm_obj = tqdm(
                 dataloader,
                 total=len(dataloader),
@@ -227,12 +216,7 @@ def test_model(model, dataloader, model_loss, args, writer, epoch, Test = False)
     precision = []
     for i, data in enumerate(tqdm_obj):
         (sample_id, clip_id, features, audio_features, query_emb, starts, ends, is_ans, _) = data
-        features = features.to(args.device)
-        audio_features = audio_features.to(args.device)
-        query_emb = query_emb.to(args.device)
-        starts = starts.to(args.device)
-        ends = ends.to(args.device)
-        is_ans = is_ans.to(args.device)
+        features, audio_features, query_emb, starts, ends, is_ans = process_model_inputs(data, args)
 
         with torch.no_grad():
             pred = model(features, query_emb, audio_features, modalities = get_modalities(args))
