@@ -8,4 +8,3 @@ def load_pickle(filename):
 def save_pickle(data, filename):
     with open(filename, mode="wb") as handle:
         pickle.dump(data, handle, protocol=pickle.HIGHEST_PROTOCOL)
-

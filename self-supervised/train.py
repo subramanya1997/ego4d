@@ -14,8 +14,9 @@ from torch.utils.tensorboard import SummaryWriter
 from torch.optim import SGD, Adam
 from tqdm import tqdm
 
-from model.model import *
-from data_loader import MEMEDataLoader, Modal
+from model.model import MEME_SS_BASE
+from model.loss import MEME_SS_LOSS
+from model.data_loader import MEMEDataLoader, Modal, get_loader
 
 
 def parse_arguments():
@@ -66,7 +67,7 @@ def initialise_wandb(args,model):
         "num_epochs": args.num_epochs,
         "hidden_size": args.hidden_size,
         "dropout": args.dropout,
-    },resume = args.resume,settings=wandb.Settings(start_method="fork"))
+    }, resume = args.resume, settings = wandb.Settings(start_method="fork"))
     if args.wandb_name is not None:
         wandb.run.name = args.wandb_name
         wandb.run.save()
@@ -74,15 +75,31 @@ def initialise_wandb(args,model):
     wandb.watch(model)
 
 def get_dataloader(args):
-    print("Loading data")
-    train = MEMEDataLoader(json_path=args.input_train_split, split="train")
-    val = MEMEDataLoader(json_path=args.input_val_split, split="val")
-    test = MEMEDataLoader(json_path=args.input_test_split, split="test")
-    args = None
-    train_loader = None 
-    val_loader = None 
-    test_loader = None
+    print("Loading data...")
+    train = MEMEDataLoader(json_path=args.input_train_split, split="train", modalities=[Modal._Video, Modal._Audio], config_file=args.dataloader_config)
+    val = MEMEDataLoader(json_path=args.input_val_split, split="val", modalities=[Modal._Video, Modal._Audio], config_file=args.dataloader_config)
+    test = MEMEDataLoader(json_path=args.input_test_split, split="test", modalities=[Modal._Video, Modal._Audio], config_file=args.dataloader_config)
+
+    train_loader = get_loader(train, batch_size=5)
+    val_loader = get_loader(val, batch_size=5) 
+    test_loader = get_loader(test, batch_size=5)
+
+    args.video_feature_size = train.video_feature_size if train.video_feature_size is not None else 0
+    args.query_feature_size = val.query_feature_size if val.query_feature_size is not None else 0
+    args.audio_feature_size = test.audio_feature_size if test.audio_feature_size is not None else 0
+
     return args, train_loader, val_loader, test_loader, train, val, test
+
+def init_model(args):
+    print("Initializing model...")
+    model = MEME_SS_BASE(args)
+    model.to(args.device)
+
+    model_loss = MEME_SS_LOSS(args)
+    #model_loss.to(args.device)
+
+    optimizer = SGD(model.parameters(), lr=args.learning_rate)
+    return model, model_loss, optimizer
 
 def load_checkpoint(model, optimizer, path):
     wandb.restore(path)
@@ -91,20 +108,52 @@ def load_checkpoint(model, optimizer, path):
     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
     epoch = checkpoint['epoch']
     loss = checkpoint['loss']
-    mIoU = checkpoint['mIoU']
     print(f"Loaded checkpoint from {path}")
-    return model, optimizer, epoch, loss, mIoU
+    return model, optimizer, epoch, loss
 
-def train():
-    pass
+def get_modalities(args):
+    modals = [Modal._Video,Modal._Transcript]
+    if args.audio:
+        modals.append(Modal._Audio)
+    return modals
+
+def train(model, dataloader, model_loss, optimizer, args, writer, epoch):
+    model.train()
+    tqdm_obj = tqdm(
+                dataloader,
+                total=len(dataloader),
+                desc="Epoch %3d / %3d" % (epoch + 1, args.num_epochs),
+            )
+
+    iter = 0
+    total_loss = 0
+    issue_cids = []
+    for data in tqdm_obj:
+        #print(data)
+        _vid, video_features, audio_features, query_features, info = data
+        video_features = video_features.to(args.device)
+        audio_features = audio_features.to(args.device)
+        query_features = query_features.to(args.device)
+        pred, framePred = model(video_features, query_features, audio_features, modalities = get_modalities(args))
+        print(framePred.shape, info)
+        pass
 
 if __name__ == "__main__":
     args = parse_arguments()
     args, train_loader, val_loader, test_loader, train_data, val_data, test_data = get_dataloader(args)
+    print("Done loading data...")
+    args.embedding_dim = args.video_feature_size + args.query_feature_size 
+    if args.audio:
+        args.embedding_dim += args.audio_feature_size
 
-    # model, model_loss, optimizer = init_model(args)
-    # initialise_wandb(args, model)
-    # writer = SummaryWriter()
+    model, model_loss, optimizer = init_model(args)
+    #initialise_wandb(args, model)
+    writer = SummaryWriter()
 
     # if wandb.run.resumed or args.resume:
-    #     model, optimizer, start_epoch, loss, best_mIoU = load_checkpoint(model, optimizer, args.last_model_path)
+    #     model, optimizer, start_epoch, loss = load_checkpoint(model, optimizer, args.last_model_path)
+
+    for epoch in range(0, args.num_epochs):
+        train_loss = train(model, train_loader, model_loss, optimizer, args, writer, epoch)
+
+    

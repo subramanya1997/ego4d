@@ -16,15 +16,14 @@ boundary_smoothing: 9 #smooth over 10 features # not needed anymore
 
 ## data stuff
 update_dataloader: False
-dataloader_cache_path: /scratch/snagabhushan_umass_edu/dataset/v1/save/nlq
-dataloader_config: ./dataset_config.yaml
-model_save_path: /scratch/shantanuagar_umass_edu/ego4d/model/nlq/
+dataloader_cache_path: /scratch/snagabhushan_umass_edu/dataset/v1/save/
+dataloader_config: ./model/dataset_config.yaml
+model_save_path: /scratch/snagabhushan_umass_edu/ego4d_project/save/model/
 
 
 # Video Preprocessing Parameters
 input_train_split: /scratch/sreeragiyer_umass_edu/ego4d/samples/sample_ego4d_train.json
 input_val_split: /scratch/sreeragiyer_umass_edu/ego4d/samples/sample_ego4d_val.json
 input_test_split: /scratch/sreeragiyer_umass_edu/ego4d/samples/sample_ego4d_test.json
-video_feature_read_path: data/video_features/
-clip_feature_save_path: data/saved_clip_features/ # save path for output clip features
-output_save_path: data/nlq_official_v1 # save path for clip info along with train-val split
+audio: True
+resume: False

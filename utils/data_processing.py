@@ -5,6 +5,7 @@ import math
 import yaml
 import argparse
 import enum
+import random
 
 import numpy as np
 
@@ -14,7 +15,7 @@ from tqdm import tqdm
 import torch
 from torch.utils.data import Dataset, DataLoader
 
-from transformers import BertTokenizer, BertModel
+from transformers import RobertaTokenizer, RobertaModel
 
 #import custom functions
 from utils.data_utils import load_pickle, save_pickle
@@ -376,8 +377,9 @@ class Ego4d_NLQ(Dataset):
         # use cuda if available
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         # text features models
-        tokenizer = BertTokenizer.from_pretrained(self.parsed_args.wordEmbedding_model)
-        model = BertModel.from_pretrained(self.parsed_args.wordEmbedding_model, output_hidden_states = True ).to(device) # Whether the model returns all hidden-states.
+        #tokenizer = BertTokenizer.from_pretrained(self.parsed_args.wordEmbedding_model)
+        tokenizer = RobertaTokenizer.from_pretrained(self.parsed_args.wordEmbedding_model)
+        model = RobertaModel.from_pretrained(self.parsed_args.wordEmbedding_model, output_hidden_states = True ).to(device) # Whether the model returns all hidden-states.
         model.eval()         
 
         for clp, data_item in tqdm(data.items(), total=len(data), desc=f"process episodic nlq {self.split}"): 

@@ -1,8 +1,8 @@
 from collections import defaultdict
 from copy import deepcopy
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, DataLoader
 import torch
-from transformers import BertTokenizer, BertModel
+from transformers import RobertaTokenizer, RobertaModel
 import json
 import yaml
 import argparse
@@ -11,8 +11,9 @@ import enum
 import os
 import re
 from tqdm import tqdm
+import random
 
-from data_utils import load_pickle, save_pickle
+from model.data_utils import load_pickle, save_pickle
 
 class Modal(enum.Enum):
     _Video = 1
@@ -43,6 +44,8 @@ class MEMEDataLoader(Dataset):
         self.split = split
         self.narrationCount_afterFilter = 0
         self.idx_frames_filter = 0
+        self.modalities = modalities
+        self.video_feature_size, self.audio_feature_size, self.query_feature_size = None, None, None
 
         if self.parsed_args.save_or_load and not self.parsed_args.update and self.parsed_args.save_or_load_path is not None:
             if os.path.exists(f'{self.parsed_args.save_or_load_path}_{self.split}.pkl'): #load
@@ -58,11 +61,23 @@ class MEMEDataLoader(Dataset):
                 print("Done Applying filters...")
 
                 print(f"#{self.split} Frames: {self.idx_frames}")
-                print(f"#{self.split} Videos: {self.idx_sample_query}")
+                print(f"#{self.split} Sample: {self.idx_sample_query}")
                 print(f"#{self.split} Narrations: {self.narrationCount}")
                 print(f"#{self.split} Final Frames after filters: {self.idx_frames_filter}")
-                print(f"#{self.split} Final Videos after filters: {len(self.data)}")
-                print(f"#{self.split} Final Narrations after filters: {self.narrationCount_afterFilter}")
+                print(f"#{self.split} Final Sample after filters: {len(self.data)}")
+                
+                for _idx in range(len(self.data)):    
+                    _, video_features, audio_features, query_features, _ = self[_idx]
+                    if video_features is not None:
+                        self.video_feature_size = video_features[0].shape[-1]
+                    if audio_features is not None:
+                        self.audio_feature_size = audio_features[0][0].shape[-1]
+                    if query_features is not None:
+                        self.query_feature_size = query_features[0].shape[-1]
+
+                    if self.video_feature_size is not None and self.audio_feature_size is not None and self.query_feature_size is not None:
+                        break
+
                 return
         
         assert (
@@ -91,13 +106,25 @@ class MEMEDataLoader(Dataset):
         print("Done Applying filters...")
 
         print(f"#{self.split} Frames: {self.idx_frames}")
-        print(f"#{self.split} Videos: {self.idx_sample_query}")
+        print(f"#{self.split} Sample: {self.idx_sample_query}")
         print(f"#{self.split} Narrations: {self.narrationCount}")
         print(f"#{self.split} Final Frames after filters: {self.idx_frames_filter}")
-        print(f"#{self.split} Final Videos after filters: {len(self.data)}")
-        print(f"#{self.split} Final Narrations after filters: {self.narrationCount_afterFilter}")
+        print(f"#{self.split} Final Sample after filters: {len(self.data)}")
 
-        self.save_data(f'{self.parsed_args.save_or_load_path}_{self.split}.pkl')
+        for _idx in range(len(self.data)):
+            _, video_features, audio_features, query_features, _ = self[_idx]
+            if video_features is not None:
+                self.video_feature_size = video_features[0].shape[-1]
+            if audio_features is not None:
+                self.audio_feature_size = audio_features[0][0].shape[-1]
+            if query_features is not None:
+                self.query_feature_size = query_features[0].shape[-1]
+            if self.video_feature_size is not None and self.audio_feature_size is not None and self.query_feature_size is not None:
+                break
+
+        # save it to a file if path given
+        if self.parsed_args.save_or_load_path is not None and (self.parsed_args.save_or_load or self.parsed_args.update):
+            self.save_data(f'{self.parsed_args.save_or_load_path}_{self.split}.pkl')
         
     def __len__(self):
         return len(self.data)
@@ -110,29 +137,37 @@ class MEMEDataLoader(Dataset):
         _vid = record['video_id']
         video_path = record['video_path']
         audio_path = record['audio_path']
-
         video_features = None
         audio_features = None
-        narration_data = None
-
-        if _vid in self.narrationData:
-            narration_data = self.narrationData[_vid]
-
+        narration_data = record['NarrationData']
+        narr_feature_timestamp = narration_data['feature_frame_timestamp']
+        start = 0 
+        end = 0
+        while True:   
+            randint = 0
+            start = max(0, narr_feature_timestamp - self.parsed_args.input_length)
+            randint = random.randint(0, start)
+            start = narr_feature_timestamp-randint
+            end = min(start + self.parsed_args.input_length, record['total_feature_vector'])
+            if randint <= narr_feature_timestamp and  end <= record['total_feature_vector']:
+                break
+        
         if self.modalities is not None:
             if (Modal._Video in self.modalities):
                 if video_path is not None:
-                    video_features = torch.load(video_path)
+                    video_features = torch.load(video_path)[start:end]
             
             if (Modal._Audio in self.modalities):
                 if audio_path is not None:
-                    audio_features = torch.load(audio_path)
+                    audio_features = torch.load(audio_path)[start:end]
         else:
             if video_path is not None:
-                video_features = torch.load(video_path)
+                video_features = torch.load(video_path)[start:end]
             if audio_path is not None:
-                audio_features = torch.load(audio_path)
-
-        return _vid, video_features, audio_features, narration_data
+                audio_features = torch.load(audio_path)[start:end]
+        narration_data['ts_start'] = start
+        narration_data['ts_end'] = end
+        return _vid, video_features, audio_features, record['NarrationFeature'], narration_data
 
     def save_data(self, path):
         """Save data to path"""
@@ -173,36 +208,36 @@ class MEMEDataLoader(Dataset):
     def _process_narration(self, jsonData):
         """Process Narration json"""
         print("Processing Narration data...")
-
+        self.narrationCount = 0
         for vid, values in tqdm(jsonData.items()):
             videoNarrData = defaultdict(list)
-            narrCount = 0
             if 'narration_pass_1' in values:
                 for i in values['narration_pass_1']['narrations']:
                     _text = re.sub('(#[a-zA-Z]*)', '', i['narration_text']).strip()
                     i['narration_text_simplified'] = _text
-                    videoNarrData[self._get_nearest_video_frame(i['timestamp_sec'], math.floor)].append(i)
-                    narrCount+=1
+                    i['feature_frame_timestamp'] = self._get_nearest_video_frame(i['timestamp_sec'], math.floor)
+                    videoNarrData[i['feature_frame_timestamp']].append(i)
+                    self.narrationCount +=1
 
             if 'narration_pass_2' in values:
                 for i in values['narration_pass_2']['narrations']:
                     _text = re.sub('(#[a-zA-Z]*)', '', i['narration_text']).strip()
                     i['narration_text_simplified'] = _text
-                    videoNarrData[self._get_nearest_video_frame(i['timestamp_sec'], math.floor)].append(i)
-                    narrCount+=1
+                    i['feature_frame_timestamp'] = self._get_nearest_video_frame(i['timestamp_sec'], math.floor)
+                    videoNarrData[i['feature_frame_timestamp']].append(i)
+                    self.narrationCount +=1
 
-            if len(videoNarrData) != 0:
-                videoNarrData['Total'] = narrCount
+            if len(videoNarrData.keys()) != 0:
                 self.narrationData[vid] = videoNarrData
-                self.narrationCount += narrCount
 
     def _process_data(self, jsonData):
         """Process the entire json"""
         print("Processing ego4D json data...")
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         print(f'{device}')
-        tokenizer = BertTokenizer.from_pretrained(self.parsed_args.wordEmbedding_model)
-        model = BertModel.from_pretrained(self.parsed_args.wordEmbedding_model, output_hidden_states = True ).to(device) # Whether the model returns all hidden-states.
+        print(f'Model: {self.parsed_args.wordEmbedding_model}')
+        tokenizer = RobertaTokenizer.from_pretrained(self.parsed_args.wordEmbedding_model)
+        model = RobertaModel.from_pretrained(self.parsed_args.wordEmbedding_model, output_hidden_states = True ).to(device) # Whether the model returns all hidden-states.
         model.eval()
 
         tqdm_obj = tqdm(
@@ -210,22 +245,11 @@ class MEMEDataLoader(Dataset):
                 total=len(jsonData['videos']),
                 desc="Videos",
             )
-
-        for i, data in tqdm_obj:
+        for idx, data in tqdm_obj:
 
             _vid = data['video_uid']
             _narr = None
-            if _vid in self.narrationData:
-                _narr = self.narrationData[_vid]
-                for frameNo, narrs in _narr.items():
-                    if frameNo == 'Total':
-                        continue
-                    for i, narrData in enumerate(narrs):
-                        _text = narrData['narration_text_simplified']
-                        inputText = tokenizer(_text, return_tensors='pt').to(device)
-                        with torch.no_grad():
-                            _narr[frameNo][i]['textFeatures'] = model(**inputText).last_hidden_state.to('cpu')
-
+            
             clip_path = os.path.join(self.videos_path, _vid+'.pt')
             if not os.path.exists(clip_path):
                 clip_path = None
@@ -233,18 +257,30 @@ class MEMEDataLoader(Dataset):
             audio_path = os.path.join(self.audio_path, _vid+'.pt')
             if not os.path.exists(audio_path):
                 audio_path = None
-
-            record = {
-                "video_id": _vid,
-                "duration_sec": data['duration_sec'],
-                "total_feature_vector": self._get_nearest_video_frame(data['duration_sec'], math.floor)+1,
-                "video_path": clip_path,
-                "audio_path": audio_path,
-                "Narration": _narr,
-            }
-            self.sample_query_map[self.idx_sample_query] = record
-            self.idx_sample_query += 1
-            self.idx_frames += record['total_feature_vector']
+            print(audio_path)
+                
+            totalFrameDuration = self._get_nearest_video_frame(data['duration_sec'], math.floor)+1
+                
+            if _vid in self.narrationData:
+                _narr = self.narrationData[_vid]
+                for frameNo, narrs in _narr.items():
+                    for j, narrData in enumerate(narrs):
+                        _text = narrData['narration_text_simplified']
+                        inputText = tokenizer(_text, return_tensors='pt').to(device)
+                        with torch.no_grad():
+                            _narrFeatures = model(**inputText).last_hidden_state.to('cpu')
+                        record = {
+                            "video_id": _vid,
+                            "duration_sec": data['duration_sec'],
+                            "total_feature_vector": totalFrameDuration,
+                            "video_path": clip_path,
+                            "audio_path": audio_path,
+                            "NarrationData": narrData,
+                            "NarrationFeature": _narrFeatures
+                        }
+                        self.sample_query_map[self.idx_sample_query] = record
+                        self.idx_sample_query += 1
+                        self.idx_frames += record['total_feature_vector']
 
     def _apply_filter(self, args):
         """Apply filters data"""
@@ -259,9 +295,42 @@ class MEMEDataLoader(Dataset):
             if args.number_of_sample != None:
                 if len(self.data) >= args.number_of_sample:
                     break
+            
+            if self.modalities is not None:
+                if (Modal._Video in self.modalities):
+                    if  (record['video_path'] == None):
+                        continue
+                if (Modal._Audio in self.modalities):
+                    if  (record['audio_path'] == None):
+                        continue
+
             if record['total_feature_vector'] >= minF and record['total_feature_vector'] <= maxF:
                 self.data.append(record)
                 self.idx_frames_filter += record['total_feature_vector']
 
-                if record['video_id'] in self.narrationData:
-                    self.narrationCount_afterFilter += self.narrationData[record['video_id']]['Total']
+
+def get_loader(dataset, batch_size):
+    train_loader = DataLoader(
+        dataset=dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        collate_fn=train_collate_fn,
+    )
+    return train_loader
+
+def train_collate_fn(batch):
+    """
+    Collate function for data loading.
+    """
+    _vid, video_features, audio_features, query_features, data = zip(*batch)
+
+    video_features = torch.stack(video_features)
+
+    default_audio = torch.zeros(video_features[0].shape[0],49, 1024).to(video_features)
+    audio_features = [torch.mean(x,dim=1) if x is not None else default_audio for x in audio_features]
+    audio_features = torch.stack(audio_features)
+
+    #get only CLS embedding for query
+    query_features = torch.stack([query_features[0][0]])
+
+    return _vid, video_features, audio_features, query_features, data

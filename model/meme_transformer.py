@@ -88,9 +88,6 @@ class MEME_BASE(nn.Module):
 
         return model_input
         
-
-        
-
 def init_weights(m):
     if isinstance(m, nn.Linear):
         torch.nn.init.xavier_uniform(m.weight)
