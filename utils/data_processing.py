@@ -15,7 +15,7 @@ from tqdm import tqdm
 import torch
 from torch.utils.data import Dataset, DataLoader
 
-from transformers import RobertaTokenizer, RobertaModel
+from transformers import AutoTokenizer, AutoModel
 
 #import custom functions
 from utils.data_utils import load_pickle, save_pickle
@@ -63,7 +63,7 @@ class Ego4d_NLQ(Dataset):
                 self.idx_sample_query = saved_data['idx_sample_query']
                 self.sample_query_map = saved_data['sample_query_map']
                 self.video_feature_size = saved_data['video_feature_size']
-                self.audio_feature_size = saved_data['audio_feature_size']
+                self.audio_feature_size = 1024 # saved_data['audio_feature_size']
                 self.query_feature_size = saved_data['query_feature_size']
                 #models and options
                 self.wordEmbedding_model =  self.parsed_args.wordEmbedding_model
@@ -143,7 +143,7 @@ class Ego4d_NLQ(Dataset):
             if clip_feature is not None:
                 self.video_feature_size = clip_feature[0].shape[-1]
             if audio_features is not None:
-                self.audio_feature_size = audio_features[0][0].shape[-1]
+                self.audio_feature_size = 1024 # audio_features[0][0].shape[-1]
             if query_features is not None:
                 self.query_feature_size = query_features[0].shape[-1]
         else:
@@ -377,9 +377,8 @@ class Ego4d_NLQ(Dataset):
         # use cuda if available
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         # text features models
-        #tokenizer = BertTokenizer.from_pretrained(self.parsed_args.wordEmbedding_model)
-        tokenizer = RobertaTokenizer.from_pretrained(self.parsed_args.wordEmbedding_model)
-        model = RobertaModel.from_pretrained(self.parsed_args.wordEmbedding_model, output_hidden_states = True ).to(device) # Whether the model returns all hidden-states.
+        tokenizer = AutoTokenizer.from_pretrained(self.parsed_args.wordEmbedding_model)
+        model = AutoModel.from_pretrained(self.parsed_args.wordEmbedding_model, output_hidden_states = True ).to(device) # Whether the model returns all hidden-states.
         model.eval()         
 
         for clp, data_item in tqdm(data.items(), total=len(data), desc=f"process episodic nlq {self.split}"): 
