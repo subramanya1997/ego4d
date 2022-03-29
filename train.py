@@ -133,9 +133,9 @@ def infer_from_model(pred, topk, qa_pipeline):
     # end = pred[:, 1].cpu().numpy()
     # max_len = args.max_len
     # s, e, scores = decode_candidate_clips(qa_pipeline, start, end, topk, max_len)
-    # s, e, scores = get_best_segment(pred[:,:,-1].cpu().numpy(), topk)
-    pred_p = torch.nn.functional.softmax(pred, dim=-1)
-    s, e, scores = get_best_scoring_segment(pred_p.cpu().numpy(), topk)
+    s, e, scores = get_best_segment(pred[:,:,-1].cpu().numpy(), topk)
+    # pred_p = torch.nn.functional.softmax(pred, dim=-1)
+    # s, e, scores = get_best_scoring_segment(pred_p.cpu().numpy(), topk)
     return s, e, scores
 
 def process_model_inputs(data, args):
@@ -294,7 +294,7 @@ def cache_records_and_evaluate(records, epoch, n_iter, args, nlq_data, writer, t
 
 
 if __name__ == "__main__":
-    fix_seed(1234)
+    # fix_seed(1234)
     args = parse_arguments()
     args, train_loader, val_loader, test_loader, val_nlq, test_nlq = get_dataloader(args)
     args.embedding_dim = args.video_feature_size + args.query_feature_size 
