@@ -27,7 +27,7 @@ class Modal(enum.Enum):
     _IMU = 4
     _3D = 5
 
-class Ego4d_MQ(Dataset):
+class Ego4d_VQ(Dataset):
     def __init__(self, annotations_path, modalities = None, split="train", config_file="dataset_config.yaml", save_or_load_path=None, filter_vids = None):
         """Class for reading and visualizing annotations.
         Args:
@@ -121,6 +121,7 @@ class Ego4d_MQ(Dataset):
         
         #reformat data
         raw_data, clip_video_map = self._reformat_data(raw_data)
+        self.rd = raw_data
         self.all_clip_video_map.update(clip_video_map)
         print("Done reforming data...")
         
@@ -194,7 +195,8 @@ class Ego4d_MQ(Dataset):
                 audio_features = torch.load(audio_path)
                 audio_features = audio_features[ s_a_idx : e_a_idx , : ]
 
-        query_label_features = sample_query['query_label_features']
+        query_vector = [sample_query['query_video_frame'], sample_query['query_frame'], sample_query['query_response_track'], 
+                        sample_query['query_object_title'], sample_query['query_object_title_features'], sample_query['query_visual_crop']]
         
         is_s = [ (sample_query['s_video_frame'] == i) for i in range(s_v_idx, e_v_idx)]
         is_e = [ (sample_query['e_video_frame'] == i) for i in range(s_v_idx, e_v_idx)]
@@ -206,7 +208,7 @@ class Ego4d_MQ(Dataset):
                 "Query Feature Size": self.query_feature_size,
                 "Frame length": frame_length}
         
-        return sample_id, clip_id, clip_features, audio_features, query_label_features, is_s, is_e, is_ans, info
+        return sample_id, clip_id, clip_features, audio_features, query_vector, is_s, is_e, is_ans, info
 
     def _get_nearest_video_frame(self, time, floor_or_ceil=None):
         """Obtain the nearest frame for a given time, video fps, and feature window."""
@@ -293,48 +295,40 @@ class Ego4d_MQ(Dataset):
                     "fps": self.parsed_args.video_fps / self.parsed_args.video_window_size,
                     "num_frames": num_frames,
                     "a_num_frames": a_num_frames,
-                    "timestamps": [],
-                    "a_timestamps": [],
-                    "exact_times": [],
-                    "query_labels": [],
-                    "query_timestamps": [],
+                    # "timestamps": [],
+                    # "a_timestamps": [],
+                    # "exact_times": [],
+                    "query_video_frames": [],
                     "query_frames": [],
-                    "annotation_uids": [],
+                    "query_response_tracks": [],
+                    "query_object_titles": [],
+                    "query_visual_crops": [],
+                    "query_key": [],
                     "query_idx": [],
                 }
 
                 for ann_datum in clip_datum["annotations"]:
-                    if "labels" not in ann_datum:
+                    if "query_sets" not in ann_datum:
                         continue
-                    for index, datum in enumerate(ann_datum["labels"]):
-                        start_time = float(datum["start_time"])
-                        end_time = float(datum["end_time"])
+                    for index, (k, datum) in enumerate(ann_datum["query_sets"].items()):
+                        if "is_valid" in datum and datum["is_valid"] is not True:
+                            continue
 
-                        new_dict["query_labels"].append(datum["label"])
-                        new_dict["query_timestamps"].append([datum["video_start_time"], datum["video_end_time"]])
-                        new_dict["query_frames"].append([datum["video_start_frame"], datum["video_end_frame"]])
-                        new_dict["annotation_uids"].append(ann_datum["annotator_uid"])
+                        new_dict["query_video_frames"].append(datum["query_video_frame"])
+                        new_dict["query_frames"].append(datum["query_frame"])
+                        new_dict["query_response_tracks"].append(datum["response_track"])
+                        new_dict["query_object_titles"].append(datum["object_title"])
+                        new_dict["query_visual_crops"].append(datum["visual_crop"])
                         new_dict["query_idx"].append(index)
-                        new_dict["exact_times"].append([start_time, end_time]),
-                        new_dict["timestamps"].append(
-                            [
-                                self._get_nearest_video_frame(start_time, math.floor),
-                                self._get_nearest_video_frame(end_time, math.ceil) if self._get_nearest_video_frame(end_time, math.ceil) < (num_frames-1) else self._get_nearest_video_frame(end_time, math.ceil)-1,
-                            ]
-                        ),
-                        new_dict["a_timestamps"].append(
-                            [
-                                self._get_nearest_audio_frame(start_time, math.floor),
-                                self._get_nearest_audio_frame(end_time, math.ceil) if self._get_nearest_audio_frame(end_time, math.ceil) < (a_num_frames-1) else self._get_nearest_audio_frame(end_time, math.ceil)-1,
-                            ]
-                        )
+                        new_dict["query_key"].append(k)
+                        
                 formatted_data[clip_uid] = new_dict
         return formatted_data, clip_video_map
 
     def _get_final_dataset(self):
         """Apply filters to the dataset"""
         print("Adding filters to data...")
-        for _id, info in tqdm(self.sample_query_map.items(), total=len(self.sample_query_map.keys()) ,desc=f"Final episodic mq {self.split} dataset"):
+        for _id, info in tqdm(self.sample_query_map.items(), total=len(self.sample_query_map.keys()) ,desc=f"Final episodic vq {self.split} dataset"):
             #number of sample option
             if self.number_of_sample is not None:
                 if len(self.data) >= self.number_of_sample:
@@ -374,18 +368,20 @@ class Ego4d_MQ(Dataset):
         model = BertModel.from_pretrained(self.parsed_args.wordEmbedding_model, output_hidden_states = True ).to(device) # Whether the model returns all hidden-states.
         model.eval()         
 
-        for clp, data_item in tqdm(data.items(), total=len(data), desc=f"process episodic mq {self.split}"): 
+        for clp, data_item in tqdm(data.items(), total=len(data), desc=f"process episodic vq {self.split}"): 
             num_frames = data_item["num_frames"]
             num_audio_frames = data_item["a_num_frames"]
             zipper = zip(
-                        data_item["a_timestamps"],
-                        data_item["timestamps"],
-                        data_item["exact_times"],
-                        data_item["query_timestamps"],
+                        # data_item["a_timestamps"],
+                        # data_item["timestamps"],
+                        # data_item["exact_times"],
+                        data_item["query_video_frames"],
                         data_item["query_frames"],
-                        data_item["query_labels"],
-                        data_item["annotation_uids"],
+                        data_item["query_response_tracks"],
+                        data_item["query_object_titles"],
+                        data_item["query_visual_crops"],
                         data_item["query_idx"],
+                        data_item["query_key"],
             )
 
             #modal paths
@@ -397,7 +393,7 @@ class Ego4d_MQ(Dataset):
             if not os.path.exists(audio_path):
                 audio_path = None
   
-            for a_timestamps, timestamp, exact_time, query_timestamp, query_frame, query_label, ann_uid, query_idx in zipper:
+            for query_video_frame, query_frame, query_response_track, query_object_title, query_visual_crop, query_idx, query_key in zipper:
 
                 s_frame = 0
                 e_frame = num_frames-1
@@ -405,13 +401,14 @@ class Ego4d_MQ(Dataset):
                 e_audio_frame = num_audio_frames-1
 
                 if self.split == "train": #at test give the whole clip as input
-                    s_frame = max(0, timestamp[0]-5)
-                    e_frame = min(num_frames-1, timestamp[1]+5)
-                    s_audio_frame = max(0, a_timestamps[0]-5)
-                    e_audio_frame = min(num_audio_frames-1, a_timestamps[1]+5)
+                    rt_len = len(query_response_track)
+                    s_frame = max(0, query_response_track[0]["frame_number"]-5)
+                    e_frame = min(num_frames-1, query_response_track[rt_len-1]["frame_number"]+5)
+                    s_audio_frame = s_frame
+                    e_audio_frame = e_frame
 
                 #tokenizer for bert with [cls] token
-                input = tokenizer(query_label, return_tensors='pt').to(device)
+                input = tokenizer(query_object_title, return_tensors='pt').to(device)
                 _text_features = None
                 with torch.no_grad():
                     _text_features = model(**input).last_hidden_state.to('cpu')
@@ -421,27 +418,28 @@ class Ego4d_MQ(Dataset):
                     "clip_id": str(clp),
                     "clip_path": clip_path,
                     "audio_path": audio_path,
-                    "query_start_time": query_timestamp[0],
-                    "query_end_time": query_timestamp[1],
-                    "query_start_frame": query_frame[0],
-                    "query_end_frame": query_frame[1],
-                    "query_label": query_label,
-                    "query_label_features": _text_features,
-                    "annotation_uid": ann_uid,
+                    "query_video_frame": query_video_frame,
+                    "query_frame": query_frame,
+                    "query_response_track": query_response_track,
+                    "query_object_title": query_object_title,
+                    "query_object_title_features": _text_features,
+                    "query_visual_crop": query_visual_crop,
+                    "annotation_uid": str(clp)+"-"+query_key,
                     "query_idx": query_idx,
-                    "s_video_frame": timestamp[0],
-                    "e_video_frame": timestamp[1],
-                    "s_audio_frame": a_timestamps[0],
-                    "e_audio_frame": a_timestamps[1],
-                    "exact_s_time": exact_time[0],
-                    "exact_e_time": exact_time[1],
+                    "query_key": query_key,
+                    "s_video_frame": query_response_track[0]["frame_number"],
+                    "e_video_frame":  query_response_track[rt_len-1]["frame_number"],
+                    "s_audio_frame": query_response_track[0]["frame_number"],
+                    "e_audio_frame":  query_response_track[rt_len-1]["frame_number"],
+                    "exact_s_time": query_response_track[0]["frame_number"],
+                    "exact_e_time": query_response_track[rt_len-1]["frame_number"],
                     "clip_s_time": self.all_clip_video_map[clp][3],
                     "clip_e_time": self.all_clip_video_map[clp][4],
                     "video_frame_length": e_frame - s_frame + 1,
                     "audio_frame_length": e_audio_frame - s_audio_frame + 1,
                     "video_range": ( s_frame,  e_frame),
                     "audio_range": ( s_audio_frame,  e_audio_frame),
-                    "annotated_frame_length": timestamp[1] - timestamp[0]
+                    "annotated_frame_length": query_response_track[rt_len-1]["frame_number"] - query_response_track[0]["frame_number"]
                 }
 
                 self.sample_query_map[self.idx_sample_query] = record
@@ -469,9 +467,9 @@ def get_test_loader(dataset, batch_size):
 
 def train_collate_fn(batch):
     # sample_id, clip_id, clip_features, audio_features, query_features, is_s, is_e, is_ans, info = zip(*batch)
-    sample_id, clip_id, clip_features, audio_features, query_label_features, is_s, is_e, is_ans, info = zip(*batch)
+    sample_id, clip_id, clip_features, audio_features, query_vector, is_s, is_e, is_ans, info = zip(*batch)
     if clip_features[0] is None: #TODO
-        return clip_id, clip_features, query_label_features, is_s, is_e, is_ans #TODO
+        return clip_id, clip_features, query_vector, is_s, is_e, is_ans #TODO
 
     # TODO have to pad different clip lengths with some token - make loss fn ignore those too
     clip_id = [x for x in clip_id]
@@ -482,14 +480,10 @@ def train_collate_fn(batch):
     default_audio = torch.zeros(clip_features[0].shape[0],info[0]['Audio Feature Size']).to(clip_features)
     audio_features = [torch.mean(x,dim=1) if x is not None else default_audio for x in audio_features]
     audio_features = torch.stack(audio_features)
-    
-    #get only CLS embedding for query
-    query_label_features = [torch.cat([y[:,0,:] for y in x],dim=0) for x in query_label_features]
-    query_label_features = torch.stack(query_label_features)
 
     is_s = torch.stack([torch.tensor(x) for x in is_s]).to(torch.float)
     is_e = torch.stack([torch.tensor(x) for x in is_e]).to(torch.float)
     is_ans = torch.stack([torch.tensor(x) for x in is_ans]).to(torch.float)
     # frame_length = torch.stack([torch.tensor(x) for x in frame_length])
 
-    return sample_id, clip_id, clip_features, audio_features, query_label_features, is_s, is_e, is_ans, info
+    return sample_id, clip_id, clip_features, audio_features, query_vector, is_s, is_e, is_ans, info
