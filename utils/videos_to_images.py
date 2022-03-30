@@ -106,9 +106,9 @@ def extract_clip_frame_nos_wclips(video_md, clip_annotation, save_root):
     # clip_fps = int(clip_annotation["clip_fps"])
     # Select frames for clip
     # video_fps = int(video_md["fps"])
-    # vsf = clip_annotation["clip_start_frame"]
-    # vef = clip_annotation["clip_end_frame"]
-    # video_frames_for_clip = list(range(vsf, vef+1))
+    vsf = clip_annotation["clip_start_frame"]
+    vef = clip_annotation["clip_end_frame"]
+    video_frames_for_clip = list(range(vsf, vef+1))
     # Only save images containing response_track and visual_crop
     annotation = clip_annotation["annotations"][0]
     frames_to_save = []
@@ -123,7 +123,7 @@ def extract_clip_frame_nos_wclips(video_md, clip_annotation, save_root):
             if os.path.isfile(path):
                 continue
             frames_to_save.append(
-                {"video_fno": fno, "save_path": path}
+                {"video_fno": video_frames_for_clip[fno], "save_path": path}
             )
     return frames_to_save
 
