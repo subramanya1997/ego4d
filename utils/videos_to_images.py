@@ -10,7 +10,6 @@ import os
 import imageio
 import pims
 import tqdm
-# from vq2d.baselines.utils import get_image_name_from_clip_uid
 
 IMAGE_NAME_PATTERN = "{}/frame_{:07d}.png"
 

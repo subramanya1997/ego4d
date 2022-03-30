@@ -19,6 +19,7 @@ from transformers import BertTokenizer, BertModel
 from utils.data_utils import load_pickle, save_pickle
 
 from collections import defaultdict
+from vq_utils import perform_retrieval
 
 class Modal(enum.Enum):
     _Video = 1
@@ -70,6 +71,7 @@ class Ego4d_VQ(Dataset):
                 self.number_of_sample = self.parsed_args.number_of_sample if self.parsed_args.number_of_sample != 'None' else None
                 self.video_features_path = self.parsed_args.video_features_path
                 self.audio_features_path = self.parsed_args.audio_features_path
+                self.image_path = self.parsed_args.image_path
                 self.modalities = set(modalities) if modalities is not None else None
                 self.filter_vids = set(filter_vids) if filter_vids is not None else None
 
@@ -108,6 +110,7 @@ class Ego4d_VQ(Dataset):
         self.number_of_sample = self.parsed_args.number_of_sample if self.parsed_args.number_of_sample != 'None' else None
         self.video_features_path = self.parsed_args.video_features_path 
         self.audio_features_path = self.parsed_args.audio_features_path
+        self.image_path = self.parsed_args.image_path
         self.modalities = set(modalities) if modalities is not None else None
         self.filter_vids = set(filter_vids) if filter_vids is not None else None
         
@@ -195,8 +198,16 @@ class Ego4d_VQ(Dataset):
                 audio_features = torch.load(audio_path)
                 audio_features = audio_features[ s_a_idx : e_a_idx , : ]
 
+        if self.image_path is not None:
+            fno = sample_query['query_visual_crop']['frame_number']+1
+            img_name_format = "frame_{:07d}.png"
+            img_filename = img_name_format.format(fno)
+            img_fullpath = os.path.join(self.image_path, clip_id, img_filename)
+            _, bbox_img_tensor = perform_retrieval(img_fullpath, sample_query['query_visual_crop'])
+
         query_vector = [sample_query['query_video_frame'], sample_query['query_frame'], sample_query['query_response_track'], 
-                        sample_query['query_object_title'], sample_query['query_object_title_features'], sample_query['query_visual_crop']]
+                        sample_query['query_object_title'], sample_query['query_object_title_features'], sample_query['query_visual_crop'],
+                        bbox_img_tensor]
         
         is_s = [ (sample_query['s_video_frame'] == i) for i in range(s_v_idx, e_v_idx)]
         is_e = [ (sample_query['e_video_frame'] == i) for i in range(s_v_idx, e_v_idx)]
