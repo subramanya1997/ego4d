@@ -8,6 +8,7 @@ import multiprocessing as mp
 import os
 
 import imageio
+from numpy import clip
 import pims
 import tqdm
 
@@ -93,6 +94,38 @@ def extract_clip_frame_nos(video_md, clip_annotation, save_root):
             )
     return frames_to_save
 
+def extract_clip_frame_nos_wclips(video_md, clip_annotation, save_root):
+    """
+    Extracts frame numbers corresponding to the VQ annotation for a given clip
+    Args:
+        video_md - a dictionary of video metadata
+        clip_annotation - a clip annotation from the VQ task export
+        save_root - path to save extracted images
+    """
+    clip_uid = clip_annotation["clip_uid"]
+    # clip_fps = int(clip_annotation["clip_fps"])
+    # Select frames for clip
+    # video_fps = int(video_md["fps"])
+    # vsf = clip_annotation["clip_start_frame"]
+    # vef = clip_annotation["clip_end_frame"]
+    # video_frames_for_clip = list(range(vsf, vef+1))
+    # Only save images containing response_track and visual_crop
+    annotation = clip_annotation["annotations"][0]
+    frames_to_save = []
+    for qset_id, qset in annotation["query_sets"].items():
+        if not qset["is_valid"]:
+            continue
+        vc_fno = qset["visual_crop"]["frame_number"]
+        rt_fnos = [rf["frame_number"] for rf in qset["response_track"]]
+        all_fnos = [vc_fno] + rt_fnos
+        for fno in all_fnos:
+            path = os.path.join(save_root, get_image_name_from_clip_uid(clip_uid, fno))
+            if os.path.isfile(path):
+                continue
+            frames_to_save.append(
+                {"video_fno": fno, "save_path": path}
+            )
+    return frames_to_save
 
 def batchify_video_uids(video_uids, batch_size):
     video_uid_batches = []
@@ -131,6 +164,30 @@ def video_to_image_fn(inputs):
 
     save_video_frames(video_path, frame_nos_to_save)
 
+def clip_to_image_fn(inputs):
+    video_data, args = inputs
+    video_uid = video_data["clip_uid"]
+
+    # Extract frames for a specific video_uid
+    video_path = os.path.join(args.ego4d_videos_root, video_uid + ".mp4")
+    if not os.path.isfile(video_path):
+        print(f"Missing clip {video_path}")
+        return None
+
+    # Get list of frames to save for annotated clips
+    video_md = read_video_md(video_path)
+    frame_nos_to_save = []
+    # Create root directory to save clip
+    os.makedirs(os.path.join(args.save_root, video_uid), exist_ok=True)
+    # Get list of frames to save
+    frame_nos_to_save += extract_clip_frame_nos_wclips(video_md, video_data, args.save_root)
+        
+
+    if len(frame_nos_to_save) == 0:
+        print(f"=========> No valid frames to read for {video_uid}!")
+        return None
+
+    save_video_frames(video_path, frame_nos_to_save)
 
 def main(args):
     # Load annotations
@@ -155,6 +212,36 @@ def main(args):
         )
     )
 
+def main_clips(args):
+    # Load annotations
+    annotation_export = []
+    for annot_path in args.annot_paths:
+        annotation_export += json.load(open(annot_path, "r"))["videos"]
+    clip_ids = set()
+    for a in annotation_export:
+        for c in a["clips"]:
+            clip_ids.add(c["clip_uid"])
+    clip_ids = list(clip_ids)
+    video_uids = sorted(clip_ids)
+    os.makedirs(args.save_root, exist_ok=True)
+    if args.video_batch_idx >= 0:
+        video_uid_batches = batchify_video_uids(video_uids, args.video_batch_size)
+        video_uids = video_uid_batches[args.video_batch_idx]
+        print(f"===> Processing video_uids: {video_uids}")
+    # Get annotations corresponding to video_uids
+    # annotation_export = [a for a in annotation_export if a["video_uid"] in video_uids]
+    inputs = []
+    for a in annotation_export:
+        for c in a["clips"]:
+            if args.video_batch_idx<0 or c["clip_uid"] in video_uids:
+                inputs.append((c, args))
+    pool = mp.Pool(args.num_workers)
+    _ = list(
+        tqdm.tqdm(
+            pool.imap_unordered(clip_to_image_fn, inputs),
+            total=len(inputs),
+        )
+    )
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -164,6 +251,9 @@ if __name__ == "__main__":
     parser.add_argument("--ego4d-videos-root", type=str, required=True)
     parser.add_argument("--video-batch-size", type=int, default=10)
     parser.add_argument("--num-workers", type=int, default=20)
+    parser.add_argument("--videos", type=bool, default=False)
     args = parser.parse_args()
-
-    main(args)
+    if args.videos:
+        main(args)
+    else:
+        main_clips(args)
