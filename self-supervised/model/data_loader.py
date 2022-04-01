@@ -12,6 +12,7 @@ import os
 import re
 from tqdm import tqdm
 import random
+import numpy as np 
 
 from model.data_utils import load_pickle, save_pickle
 
@@ -57,7 +58,10 @@ class MEMEDataLoader(Dataset):
                 self.sample_query_map = save_data['sample_query_map']
                 self.narrationData = save_data['narrationData'] 
 
-                self._apply_filter(self.parsed_args)
+                if self.parsed_args.input_type == 'multi_narration':
+                    self._apply_filter_with_multi_narr(self.parsed_args)
+                else:
+                    self._apply_filter(self.parsed_args)
                 print("Done Applying filters...")
 
                 print(f"#{self.split} Frames: {self.idx_frames}")
@@ -73,7 +77,7 @@ class MEMEDataLoader(Dataset):
                     if audio_features is not None:
                         self.audio_feature_size = audio_features[0][0].shape[-1]
                     if query_features is not None:
-                        self.query_feature_size = query_features[0].shape[-1]
+                        self.query_feature_size = query_features[0][0].shape[-1]
 
                     if self.video_feature_size is not None and self.audio_feature_size is not None and self.query_feature_size is not None:
                         break
@@ -102,7 +106,10 @@ class MEMEDataLoader(Dataset):
         self._process_narration(rawNarrationJsonData)
         self._process_data(rawjsonData)
         print("Done processing data...")
-        self._apply_filter(self.parsed_args)
+        if self.parsed_args.input_type == 'multi_narration':
+            self._apply_filter_with_multi_narr(self.parsed_args)
+        else:
+            self._apply_filter(self.parsed_args)
         print("Done Applying filters...")
 
         print(f"#{self.split} Frames: {self.idx_frames}")
@@ -140,34 +147,56 @@ class MEMEDataLoader(Dataset):
         video_features = None
         audio_features = None
         narration_data = record['NarrationData']
-        narr_feature_timestamp = narration_data['feature_frame_timestamp']
-        start = 0 
-        end = 0
-        while True:   
-            randint = 0
-            start = max(0, narr_feature_timestamp - self.parsed_args.input_length)
-            randint = random.randint(0, start)
-            start = narr_feature_timestamp-randint
-            end = min(start + self.parsed_args.input_length, record['total_feature_vector'])
-            if randint <= narr_feature_timestamp and  end <= record['total_feature_vector']:
-                break
-        
-        if self.modalities is not None:
-            if (Modal._Video in self.modalities):
+
+        if self.parsed_args.input_type == 'multi_narration':
+            start, end = record['ts_start'], record['ts_end']
+            if self.modalities is not None:
+                if (Modal._Video in self.modalities):
+                    if video_path is not None:
+                        video_features = torch.load(video_path)[start:end]
+                
+                if (Modal._Audio in self.modalities):
+                    if audio_path is not None:
+                        audio_features = torch.load(audio_path)[start:end]
+            else:
                 if video_path is not None:
                     video_features = torch.load(video_path)[start:end]
-            
-            if (Modal._Audio in self.modalities):
                 if audio_path is not None:
                     audio_features = torch.load(audio_path)[start:end]
+            
+            narrFeatures = []
+            for i in narration_data:
+                narrFeatures.append(i['NarrationFeature'])
+            return _vid, video_features, audio_features, narrFeatures, narration_data
         else:
-            if video_path is not None:
-                video_features = torch.load(video_path)[start:end]
-            if audio_path is not None:
-                audio_features = torch.load(audio_path)[start:end]
-        narration_data['ts_start'] = start
-        narration_data['ts_end'] = end
-        return _vid, video_features, audio_features, record['NarrationFeature'], narration_data
+            narr_feature_timestamp = narration_data['feature_frame_timestamp']
+            start = 0 
+            end = 0
+
+            while True:   
+                start = max(0, narr_feature_timestamp - self.parsed_args.input_length)
+                start = random.randint(start, narr_feature_timestamp)
+                end = min(start + self.parsed_args.input_length, record['total_feature_vector']-1)
+                if start <= narr_feature_timestamp and start >= 0 and end <= record['total_feature_vector']-1 and end - start <= self.parsed_args.input_length and start < end and end > narr_feature_timestamp:
+                    break
+            
+            if self.modalities is not None:
+                if (Modal._Video in self.modalities):
+                    if video_path is not None:
+                        video_features = torch.load(video_path)[start:end]
+                
+                if (Modal._Audio in self.modalities):
+                    if audio_path is not None:
+                        audio_features = torch.load(audio_path)[start:end]
+            else:
+                if video_path is not None:
+                    video_features = torch.load(video_path)[start:end]
+                if audio_path is not None:
+                    audio_features = torch.load(audio_path)[start:end]
+            narration_data['ts_start'] = start
+            narration_data['ts_end'] = end
+
+            return _vid, video_features, audio_features, record['NarrationFeature'], narration_data
 
     def save_data(self, path):
         """Save data to path"""
@@ -282,6 +311,57 @@ class MEMEDataLoader(Dataset):
                         self.idx_sample_query += 1
                         self.idx_frames += record['total_feature_vector']
 
+    def _apply_filter_with_multi_narr(self, args):
+        """Apply filters with multiple narration"""
+        maxF = 10000000000
+        minF = 1
+        if args.max_frames != None:
+            maxF = args.max_frames
+        if args.min_frames != None:
+            minF = args.min_frames
+        tempRecords = defaultdict(list)
+        for i, record in self.sample_query_map.items():
+            if (record['total_feature_vector']-1) == record['NarrationData']['feature_frame_timestamp']:
+                continue
+
+            if self.modalities is not None:
+                if (Modal._Video in self.modalities):
+                    if  (record['video_path'] == None):
+                        continue
+                if (Modal._Audio in self.modalities):
+                    if  (record['audio_path'] == None):
+                        continue
+
+            if record['total_feature_vector'] >= minF and record['total_feature_vector'] <= maxF:
+                tempRecords[record['video_id']].append(record)
+        for _vid, data in tempRecords.items():
+            dataTemp = tempRecords[_vid][0]
+            
+            tempDict = defaultdict(list)
+            for d in data:
+                narr = d['NarrationData']
+                narr['NarrationFeature'] = d['NarrationFeature']
+                input_idx = narr['feature_frame_timestamp']//args.input_frames
+                tempDict[input_idx].append(narr)
+            for i, d in tempDict.items():
+                record = {
+                    'video_id':dataTemp['video_id'],
+                    'duration_sec':dataTemp['duration_sec'],
+                    'total_feature_vector': dataTemp['total_feature_vector']-1,
+                    'video_path': dataTemp['video_path'],
+                    'audio_path': dataTemp['audio_path'],
+                    'NarrationData': d,
+                }
+                if (record['total_feature_vector'] - (i*args.input_frames)) > args.input_frames-1:
+                    self.idx_frames_filter += args.input_frames
+                    record['ts_start'] = (i*args.input_frames)
+                    record['ts_end'] = ((i+1)*args.input_frames)
+                else:
+                    self.idx_frames_filter += record['total_feature_vector'] - (i*args.input_frames)
+                    record['ts_start'] = (i*args.input_frames)
+                    record['ts_end'] = (record['total_feature_vector'])
+                self.data.append(record)
+
     def _apply_filter(self, args):
         """Apply filters data"""
         print("Apply filters to data...")
@@ -295,7 +375,9 @@ class MEMEDataLoader(Dataset):
             if args.number_of_sample != None:
                 if len(self.data) >= args.number_of_sample:
                     break
-            
+            if (record['total_feature_vector']-1) == record['NarrationData']['feature_frame_timestamp']:
+                continue
+
             if self.modalities is not None:
                 if (Modal._Video in self.modalities):
                     if  (record['video_path'] == None):
@@ -309,21 +391,49 @@ class MEMEDataLoader(Dataset):
                 self.idx_frames_filter += record['total_feature_vector']
 
 
-def get_loader(dataset, batch_size):
-    train_loader = DataLoader(
-        dataset=dataset,
-        batch_size=batch_size,
-        shuffle=True,
-        collate_fn=train_collate_fn,
-    )
+def get_loader(dataset, batch_size, type=None):
+    if type == "multi_narration":
+        train_loader = DataLoader(
+            dataset=dataset,
+            batch_size=batch_size,
+            shuffle=False,
+            collate_fn=collate_fu_for_multiNarr,
+        )
+    else:
+        train_loader = DataLoader(
+            dataset=dataset,
+            batch_size=batch_size,
+            shuffle=True,
+            collate_fn=train_collate_fn,
+        )
     return train_loader
+
+def collate_fu_for_multiNarr(batch):
+    """
+    Collate function for data loading.
+    """
+    _vid, video_features, audio_features, query_features, data = zip(*batch)
+    query_feat = query_features[0][0]
+    num_queries = 1
+    for q in query_features[0][1:]:
+        if query_feat.shape[1] + q.shape[1] >= 1100:
+            break
+        query_feat = torch.cat((query_feat, q), 1)   
+        num_queries += 1 
+
+    video_features = torch.stack(video_features)
+    default_audio = torch.zeros(video_features[0].shape[0],49, 1024).to(video_features)
+    audio_features = [torch.mean(x,dim=1) if x is not None else default_audio for x in audio_features]
+    audio_features = torch.stack(audio_features)
+
+    print( video_features[0].shape, audio_features[0].shape, query_feat.shape, query_feat.shape[1], len(data[0][:num_queries]) )
+    return _vid, video_features, audio_features, query_features[0][:num_queries], query_feat.shape[1], data[0][:num_queries]
 
 def train_collate_fn(batch):
     """
     Collate function for data loading.
     """
     _vid, video_features, audio_features, query_features, data = zip(*batch)
-
     video_features = torch.stack(video_features)
 
     default_audio = torch.zeros(video_features[0].shape[0],49, 1024).to(video_features)
@@ -332,5 +442,8 @@ def train_collate_fn(batch):
 
     #get only CLS embedding for query
     query_features = torch.stack([query_features[0][0]])
+    gtruth = np.zeros(video_features[0].shape[0])
+    gtruth[data[0]['feature_frame_timestamp'] - data[0]['ts_start']] = 1
+    gtruth = torch.from_numpy(gtruth).to(torch.float)
 
-    return _vid, video_features, audio_features, query_features, data
+    return _vid, video_features, audio_features, query_features, gtruth, data

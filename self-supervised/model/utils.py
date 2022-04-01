@@ -5,6 +5,8 @@ import numpy as np
 from tokenizers import ByteLevelBPETokenizer
 from transformers import RobertaConfig, RobertaForTokenClassification, RobertaTokenizerFast, RobertaModel
 
+VIDEO_TOKEN = "<video>"
+AUDIO_TOKEN = "<audio>"
 QUERY_TOKEN = "<query>"
 EOS_TOKEN = "<eos>"
 
@@ -21,10 +23,11 @@ def init_custom_model(folder_path="output/models/ssmodel1", model_name= "meme"):
                     show_progress=True,
                     special_tokens=["<s>", "<pad>", "</s>", "<unk>", "<mask>"])
     #Save the Tokenizer to disk
-
     tokenizer.save_model(folder_path)
 
     fast_tokenizer = RobertaTokenizerFast.from_pretrained(folder_path)
+    num_added_toks = fast_tokenizer.add_tokens([VIDEO_TOKEN], special_tokens=True)
+    num_added_toks = fast_tokenizer.add_tokens([AUDIO_TOKEN], special_tokens=True)
     num_added_toks = fast_tokenizer.add_tokens([QUERY_TOKEN], special_tokens=True)
     num_added_toks = fast_tokenizer.add_tokens([EOS_TOKEN], special_tokens=True)
     fast_tokenizer.save_pretrained(folder_path)

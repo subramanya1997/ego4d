@@ -16,7 +16,8 @@ from transformers import pipeline
 
 from model.meme import MEME
 from model.meme_loss import MEME_LOSS
-from utils.metrics import decode_candidate_clips, get_best_segment
+from model.utils import fix_seed
+from utils.metrics import decode_candidate_clips, get_best_segment, get_best_scoring_segment
 from utils.evaluate_records import evaluate_predicted_records
 from utils.data_processing import Ego4d_NLQ, get_train_loader, get_test_loader, Modal
 
@@ -45,8 +46,9 @@ def parse_arguments():
                         help="wandb name for this run, defaults to random names by wandb",\
                         type=str, default=None)
     parser.add_argument("--model-save-path", help="path of the directory with model checkpoint", type=str, default=None)
+    parser.add_argument("--loss_weight", help="loss weight", type=float, default=0.25)
     add_bool_arg(parser, 'resume', default=False)
-    add_bool_arg(parser, 'audio', default=False)
+    add_bool_arg(parser, 'audio', default=True)
     try:
         parsed_args = parser.parse_args()
     except (IOError) as msg:
@@ -127,16 +129,17 @@ def init_model(args):
     return model, model_loss, optimizer
 
 def infer_from_model(pred, topk, qa_pipeline):
-    start = pred[:, 0].cpu().numpy()
-    end = pred[:, 1].cpu().numpy()
-    max_len = args.max_len
+    # start = pred[:, 0].cpu().numpy()
+    # end = pred[:, 1].cpu().numpy()
+    # max_len = args.max_len
     # s, e, scores = decode_candidate_clips(qa_pipeline, start, end, topk, max_len)
-    s, e, scores = get_best_segment(pred[:,:,-1].cpu().numpy(), topk)
+    # s, e, scores = get_best_segment(pred[:,:,-1].cpu().numpy(), topk)
+    pred_p = torch.nn.functional.softmax(pred, dim=-1)
+    s, e, scores = get_best_scoring_segment(pred_p.cpu().numpy(), topk)
     return s, e, scores
 
-def process_batch(data, args):
+def process_model_inputs(data, args):
     (_, clip_id, features, audio_features, query_emb, starts, ends, is_ans, _) = data
-    ns += 1
     # process_modality_features
     features = features.to(args.device)
     audio_features = audio_features.to(args.device)
@@ -148,7 +151,7 @@ def process_batch(data, args):
     if torch.sum(ends)==0:
         ends[-1][-1] = 1.0
 
-    return (clip_id, features, audio_features, query_emb, starts, ends, is_ans)
+    return features, audio_features, query_emb, starts, ends, is_ans
 
 def get_modalities(args):
     modals = [Modal._Video,Modal._Transcript]
@@ -168,19 +171,7 @@ def train(model, dataloader, model_loss, optimizer, args, writer, epoch):
     issue_cids = []
     for data in tqdm_obj:
         (_, clip_id, features, audio_features, query_emb, starts, ends, is_ans, _) = data
-        # (clip_id, input_features, starts, ends, is_ans) = process_batch(data, args)
-        # process_modality_features
-        features = features.to(args.device)
-        audio_features = audio_features.to(args.device)
-        query_emb = query_emb.to(args.device)
-        starts = starts.to(args.device)
-        ends = ends.to(args.device)
-        is_ans = is_ans.to(args.device)
-
-        if torch.sum(ends)==0:
-            if epoch==0:
-                issue_cids.append(clip_id)
-            ends[-1][-1] = 1.0
+        features, audio_features, query_emb, starts, ends, is_ans = process_model_inputs(data, args)
     
         pred = model(features, query_emb, audio_features, modalities = get_modalities(args))
         loss = model_loss(pred, starts, ends, is_ans, loss_type = args.loss_type)
@@ -204,9 +195,16 @@ def train(model, dataloader, model_loss, optimizer, args, writer, epoch):
         ISSUE_CIDS['train'] = issue_cids
     return total_loss
 
+def calc_precision(pred, is_ans):
+    pred = pred.cpu().numpy()
+    _,l,_ = pred.shape
+    pred_ = np.argmax(pred,axis=2)
+    is_ans = is_ans.cpu().numpy()[:,:l]
+    return np.sum(pred_*is_ans)/np.sum(pred_)
+
 def test_model(model, dataloader, model_loss, args, writer, epoch, Test = False):
     model.eval()
-    qa_pipeline = pipeline("question-answering")
+    qa_pipeline = None # pipeline("question-answering")
     tqdm_obj = tqdm(
                 dataloader,
                 total=len(dataloader),
@@ -215,14 +213,10 @@ def test_model(model, dataloader, model_loss, args, writer, epoch, Test = False)
     iter = 0
     total_loss = 0
     records = []
+    precision = []
     for i, data in enumerate(tqdm_obj):
         (sample_id, clip_id, features, audio_features, query_emb, starts, ends, is_ans, _) = data
-        features = features.to(args.device)
-        audio_features = audio_features.to(args.device)
-        query_emb = query_emb.to(args.device)
-        starts = starts.to(args.device)
-        ends = ends.to(args.device)
-        is_ans = is_ans.to(args.device)
+        features, audio_features, query_emb, starts, ends, is_ans = process_model_inputs(data, args)
 
         with torch.no_grad():
             pred = model(features, query_emb, audio_features, modalities = get_modalities(args))
@@ -232,6 +226,7 @@ def test_model(model, dataloader, model_loss, args, writer, epoch, Test = False)
         s, e, scores = infer_from_model(pred, args.topk, qa_pipeline)
         # print(sample_id, clip_id, torch.sum(ends))
         end_idx = ends.shape[-1]-1 if torch.sum(ends) == 0 else np.where(ends.cpu().numpy() == 1)[-1][0]
+        precision.append(calc_precision(pred, is_ans))
         records.append({"sample_id": int(sample_id[0]), 
                         "clip_id": str(clip_id[0]),
                         "start": list([int(x) for x in s]), 
@@ -253,6 +248,9 @@ def test_model(model, dataloader, model_loss, args, writer, epoch, Test = False)
         # end val loop
     split = "Test" if Test else "Val"
     wandb.log({f"loss/{split}": total_loss})
+    mean_avg_p = np.mean(precision)
+    split = "test" if Test else "val"
+    wandb.log({f"{split}/MAP": mean_avg_p})
 
     return total_loss, records
 
@@ -263,6 +261,7 @@ def initialise_wandb(args,model):
         "num_epochs": args.num_epochs,
         "hidden_size": args.hidden_size,
         "dropout": args.dropout,
+        "loss_weight": args.loss_weight,
     },resume = args.resume,settings=wandb.Settings(start_method="fork"))
     if args.wandb_name is not None:
         wandb.run.name = args.wandb_name
@@ -295,6 +294,7 @@ def cache_records_and_evaluate(records, epoch, n_iter, args, nlq_data, writer, t
 
 
 if __name__ == "__main__":
+    fix_seed(1234)
     args = parse_arguments()
     args, train_loader, val_loader, test_loader, val_nlq, test_nlq = get_dataloader(args)
     args.embedding_dim = args.video_feature_size + args.query_feature_size 

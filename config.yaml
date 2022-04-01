@@ -1,13 +1,14 @@
 # Model Params
 ## Hyperparams
 hidden_size: 1024
-num_epochs: 50
+num_epochs: 12
 learning_rate: 0.001
 batch_size: 64
 topk: 5 
 model: MLP2_transformer
 clip_window: 1000
 dropout: 0.1
+loss_weight: 0.2422
 
 ## others
 force_cpu: false

@@ -9,7 +9,7 @@ QUERY_TOKEN = "<query>"
 EOS_TOKEN = "<eos>"
 
 def init_custom_model(folder_path="output/models/model1", model_name= "meme"):
-    my_config = RobertaConfig(num_hidden_layers=2, max_position_embeddings=2048,type_vocab_size=3)
+    my_config = RobertaConfig(num_hidden_layers=2, max_position_embeddings=2048,type_vocab_size=6)
     my_config.save_pretrained(save_directory=folder_path)
     my_config = RobertaConfig.from_pretrained(f"{folder_path}/config.json")
 
@@ -37,7 +37,7 @@ def init_custom_model(folder_path="output/models/model1", model_name= "meme"):
 def fix_seed(seed=0):
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
-    np.ranom.seed(seed)
+    np.random.seed(seed)
     random.seed(seed)
     torch.backends.cudnn.enabled=False
     torch.backends.cudnn.deterministic=True

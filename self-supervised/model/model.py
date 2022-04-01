@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from model.utils import init_custom_model, QUERY_TOKEN, EOS_TOKEN
+from model.utils import init_custom_model, VIDEO_TOKEN, AUDIO_TOKEN, QUERY_TOKEN, EOS_TOKEN
 from model.data_loader import Modal
 
 class MEME_SS_BASE(nn.Module):
@@ -16,8 +16,6 @@ class MEME_SS_BASE(nn.Module):
         self.model = model
         self.tokenizer = tokenizer
         self.set_special_tokens()
-
-        print(model)
 
         self.project_video = nn.Sequential(
             nn.Linear(args.video_feature_size, self.hidden_size),
@@ -36,21 +34,23 @@ class MEME_SS_BASE(nn.Module):
         )
 
         self.reorder_head = nn.Sequential(
-            nn.Linear(in_features=self.hidden_size,
-                      out_features=2000,bias=True),
-            nn.BatchNorm1d(2000), 
-            nn.ReLU(),
-            nn.Linear(in_features=2000,
-                      out_features=1000),
+            nn.Linear(self.hidden_size, self.hidden_size),
+            nn.Dropout(dropout),
+            nn.Linear(in_features=self.hidden_size, out_features=self.hidden_size ,bias=True),
         )
 
         self.frame_prediction = nn.Sequential(
-            nn.Linear(in_features=self.hidden_size,
-                      out_features=300,bias=True),
+            nn.Linear(self.hidden_size, self.hidden_size),
+            nn.Dropout(dropout),
+            nn.Linear(in_features=self.hidden_size, out_features=1, bias=True),
+            nn.Softmax(dim=0),
         )
-        self.dense = nn.Linear(self.hidden_size, self.hidden_size)
-        self.dropout = nn.Dropout(dropout)
-        self.out_proj = nn.Linear(self.hidden_size, 5)
+
+        self.frame_number_prediction = nn.Sequential(
+            nn.Linear(self.hidden_size, self.hidden_size),
+            nn.Dropout(dropout),
+            nn.Linear(in_features=self.hidden_size, out_features=1, bias=True)
+        )
 
     def forward(self, video, text, audio, modalities=None, **kwargs):
         bs,l,_ = video.shape
@@ -61,37 +61,35 @@ class MEME_SS_BASE(nn.Module):
         input_ = self.create_model_input(video, audio, text, modalities)
         output = self.model(inputs_embeds = input_)
 
-        print(input_.shape, output[0].shape, output[0][:, 0, :].shape)
-        #frame prediction head
-
-        x = output[0][:, 0, :]  # take <s> token (equiv. to [CLS])
-        x = self.dropout(x)
-        x = self.dense(x)
-        x = torch.tanh(x)
-        x = self.dropout(x)
-        x = self.out_proj(x)
-
         frame_pred = self.frame_prediction(output[0])
+        #reorder_pred = self.reorder_head(output[0])
+        frame_number_pred = self.frame_number_prediction(output[0])
         
-        
-
         #print("Output: ", output)
         #output only for each video frame
         output = output[0][:,1:l+1,:] #1 for <bos>
+        frame_pred = frame_pred[0][1:l+1,0]#1 for <bos>
+        #reorder_pred = reorder_pred[0][1:l+1,0]#1 for <bos>
+        frame_number_pred = frame_number_pred[0][1:l+1,0]
+        
+        reorder_pred = None
 
-        return output, x
+        return output, frame_pred, reorder_pred, frame_number_pred
 
     def set_special_tokens(self):
+        """VIDEO_TOKEN, AUDIO_TOKEN"""
         bos = self.tokenizer.bos_token_id
         sep = self.tokenizer.sep_token_id
+        vid = self.tokenizer.vocab[VIDEO_TOKEN]
+        aud = self.tokenizer.vocab[AUDIO_TOKEN]
         eos = self.tokenizer.vocab[EOS_TOKEN]
         query = self.tokenizer.vocab[QUERY_TOKEN]
-        self.special_tokens = torch.tensor([bos,sep,query,eos]).to(self.device)
+        self.special_tokens = torch.tensor([bos,sep,vid,aud,query,eos]).to(self.device)
         
 
     def get_token_types(self, video, audio, text):
         v, a, t = video.shape[1], audio.shape[1], text.shape[1]
-        types = [0]*(v+1)+[1]*(a+1)+[2]*(t+1)+[2] #<bos>,<sep>video,<sep>audio,<query>query,<eos>
+        types = [0]*(v+1)+[1]*(a+1)+[2]*(t+1)+[2] #<bos>,<video>video,<audio>audio,<query>query,<query>query<eos>
         types = torch.tensor(types).to(self.device)
         return types
 
@@ -105,6 +103,8 @@ class MEME_SS_BASE(nn.Module):
 
         bos = special_token_embeds[:,0,:].unsqueeze(1)
         sep = special_token_embeds[:,1,:].unsqueeze(1)
+        vid = special_token_embeds[:,2,:].unsqueeze(1)
+        aud = special_token_embeds[:,3,:].unsqueeze(1)
         query = special_token_embeds[:,2,:].unsqueeze(1)
         eos = special_token_embeds[:,3,:].unsqueeze(1)
         input_embed = torch.cat([bos,video,sep,audio,query,text,eos],dim=1)

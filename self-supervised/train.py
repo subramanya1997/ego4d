@@ -27,14 +27,14 @@ def parse_arguments():
     parser.add_argument("--max-len", help="maximum length of answer clip", type=int, default=None)
     parser.add_argument("--force-cpu", help="enforce cpu computation", type=int, default=None)
     parser.add_argument("-r", "--record-path", help="path for saving records", type=str, default='output/records/')
-    parser.add_argument("-p", "--prefix", help="prefix for this run", type=str, default='meme')
+    parser.add_argument("-p", "--prefix", help="prefix for this run", type=str, default='meme_ss')
     parser.add_argument("-l", "--loss-type", help="loss type to use", type=str, default='pos_loss')
     parser.add_argument("-w", "--wandb-name", \
                         help="wandb name for this run, defaults to random names by wandb",\
                         type=str, default=None)
     parser.add_argument("--model-save-path", help="path of the directory with model checkpoint", type=str, default=None)
-
-
+    parser.add_argument("--loss_weight", help="loss weight", type=float, default=0.25)
+    
     try:
         parsed_args = parser.parse_args()
     except (IOError) as msg:
@@ -61,17 +61,14 @@ def parse_arguments():
     return parsed_args
 
 def initialise_wandb(args,model):
-    wandb.init(project=f"ego4d_{args.prefix}", entity="ego4d-self", config={
+    wandb.init(project="self-supervised", entity="ego4d-meme")
+    wandb.config = {
         "learning_rate": args.learning_rate,
         "batch_size": args.batch_size,
         "num_epochs": args.num_epochs,
         "hidden_size": args.hidden_size,
         "dropout": args.dropout,
-    }, resume = args.resume, settings = wandb.Settings(start_method="fork"))
-    if args.wandb_name is not None:
-        wandb.run.name = args.wandb_name
-        wandb.run.save()
-
+    }
     wandb.watch(model)
 
 def get_dataloader(args):
@@ -80,9 +77,9 @@ def get_dataloader(args):
     val = MEMEDataLoader(json_path=args.input_val_split, split="val", modalities=[Modal._Video, Modal._Audio], config_file=args.dataloader_config)
     test = MEMEDataLoader(json_path=args.input_test_split, split="test", modalities=[Modal._Video, Modal._Audio], config_file=args.dataloader_config)
 
-    train_loader = get_loader(train, batch_size=5)
-    val_loader = get_loader(val, batch_size=5) 
-    test_loader = get_loader(test, batch_size=5)
+    train_loader = get_loader(train, batch_size=1, type=args.dataloader_type)
+    val_loader = get_loader(val, batch_size=1, type=args.dataloader_type) 
+    test_loader = get_loader(test, batch_size=1, type=args.dataloader_type)
 
     args.video_feature_size = train.video_feature_size if train.video_feature_size is not None else 0
     args.query_feature_size = val.query_feature_size if val.query_feature_size is not None else 0
@@ -96,7 +93,7 @@ def init_model(args):
     model.to(args.device)
 
     model_loss = MEME_SS_LOSS(args)
-    #model_loss.to(args.device)
+    model_loss.to(args.device)
 
     optimizer = SGD(model.parameters(), lr=args.learning_rate)
     return model, model_loss, optimizer
@@ -129,14 +126,92 @@ def train(model, dataloader, model_loss, optimizer, args, writer, epoch):
     total_loss = 0
     issue_cids = []
     for data in tqdm_obj:
-        #print(data)
-        _vid, video_features, audio_features, query_features, info = data
+        _vid, video_features, audio_features, query_features, gtruth, info = data
+        indexs = torch.arange(0, video_features.shape[1])
+        if args.randomize:
+            indexs = torch.randperm(video_features.shape[1])
+            video_features[0] = video_features[0][indexs]
+            gtruth = gtruth[indexs]
+
         video_features = video_features.to(args.device)
         audio_features = audio_features.to(args.device)
         query_features = query_features.to(args.device)
-        pred, framePred = model(video_features, query_features, audio_features, modalities = get_modalities(args))
-        print(framePred.shape, info)
-        pass
+        gtruth = gtruth.to(args.device)
+        pred, framePred, reorderPred, frameNumbersPred = model(video_features, query_features, audio_features, modalities = get_modalities(args))
+        
+        #loss = model_loss(framePred, gtruth, loss_type = "BCE")
+        #loss = model_loss(torch.round(framePred), gtruth, loss_type = "BCE")
+        loss = model_loss(frameNumbersPred, ( torch.ones(frameNumbersPred.shape[0]).to(args.device) * ((gtruth== 1).nonzero(as_tuple=True)[0])[0].to(torch.float32) ), loss_type="Distance")
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        
+        total_loss += loss.cpu().item()
+        n_iter = epoch * len(dataloader) + iter
+        # writer.add_scalar('Loss/train', loss.detach().cpu().item(), n_iter)
+        # wandb.log({"batch loss/train": loss.detach().cpu().item()})
+        iter += 1
+
+        if iter%100 == 0:
+            print(f'Loss/train/{epoch} : {loss.cpu().item()} ==> iter : {iter}')
+            #print(f'pred : {frameNumbersPred} ==> gtruth : {((gtruth== 1).nonzero(as_tuple=True)[0]).to(torch.float32)}')
+
+    print(f'Total Loss/train : {total_loss} ==> epoch : {epoch}')
+    #wandb.log({f"loss/train": total_loss})
+    return total_loss
+
+def test_model(model, dataloader, model_loss, args, writer, epoch, Test = False):
+    model.eval()
+    tqdm_obj = tqdm(
+                dataloader,
+                total=len(dataloader),
+                desc="Epoch %3d / %3d" % (epoch + 1, args.num_epochs),
+            )
+    iter = 0
+    total_loss = 0
+    for i, data in enumerate(tqdm_obj):
+        _vid, video_features, audio_features, query_features, gtruth, info = data
+        # indexs = torch.arange(0, video_features.shape[1])
+        # if args.randomize:
+        #     indexs = torch.randperm(video_features.shape[1])
+        #     video_features[0] = video_features[0][indexs]
+        #     gtruth = gtruth[indexs]
+
+        video_features = video_features.to(args.device)
+        audio_features = audio_features.to(args.device)
+        query_features = query_features.to(args.device)
+        gtruth = gtruth.to(args.device)
+
+        with torch.no_grad():
+            pred, framePred, reorderPred, frameNumbersPred = model(video_features, query_features, audio_features, modalities = get_modalities(args))
+
+        #loss = model_loss(framePred, gtruth, loss_type = "BCE")
+        #loss = model_loss(torch.round(framePred), gtruth, loss_type = "BCE")
+        loss = model_loss(frameNumbersPred, (gtruth== 1).nonzero(as_tuple=True)[0], loss_type="Distance")
+        total_loss += loss.cpu().item()
+
+        n_iter = epoch * len(dataloader) + iter
+        split = "test" if Test else "val"
+        # writer.add_scalar(f'Loss/{split}', loss.cpu().item(), n_iter)
+        # wandb.log({f"batch loss/{split}": loss.cpu().item()})
+
+        iter += 1
+
+        if iter%100 == 0:
+            print(f'Loss/{split}/{epoch} : {loss.cpu().item()} ==> iter : {iter}')
+            print(f'pred : {frameNumbersPred} ==> gtruth : {((gtruth== 1).nonzero(as_tuple=True)[0]).to(torch.float32)}')
+
+    print(f'Total Loss/{split} : {total_loss} ==> epoch : {epoch}')
+    return total_loss
+
+def save_checkpoint(model, optimizer, epoch, loss, path):
+    torch.save({ # Save our checkpoint loc
+            'epoch': epoch,
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'loss': loss,
+            }, path)
+    #wandb.save(path)
 
 if __name__ == "__main__":
     args = parse_arguments()
@@ -155,5 +230,8 @@ if __name__ == "__main__":
 
     for epoch in range(0, args.num_epochs):
         train_loss = train(model, train_loader, model_loss, optimizer, args, writer, epoch)
-
+        val_loss = test_model(model, test_loader, model_loss, args, writer, epoch, Test = False)
+        val_loss = test_model(model, test_loader, model_loss, args, writer, epoch, Test = True)
+        
+        save_checkpoint(model, optimizer, epoch, val_loss, args.last_model_path)
     
