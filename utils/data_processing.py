@@ -5,6 +5,7 @@ import math
 import yaml
 import argparse
 import enum
+import random
 
 import numpy as np
 
@@ -214,7 +215,8 @@ class Ego4d_NLQ(Dataset):
                 "Audio Feature Size": self.audio_feature_size,
                 "Query Feature Size": self.query_feature_size,
                 "Frame length": frame_length,
-                "default_audio": self.default_audio}
+                "default_audio": self.default_audio
+                }
         
         return sample_id, clip_id, clip_features, audio_features, query_features, is_s, is_e, is_ans, info
 
@@ -421,13 +423,13 @@ class Ego4d_NLQ(Dataset):
                 s_audio_frame = 0
                 e_audio_frame = num_audio_frames-1
 
-                # if self.split == "train": #at test give the whole clip as input
-                #     #negative padding
-                #     padding = random.randint(0,50)
-                #     s_frame = max(0, timestamp[0]-padding)
-                #     e_frame = min(num_frames-1, timestamp[1]+padding)
-                #     s_audio_frame = max(0, a_timestamps[0]-padding)
-                #     e_audio_frame = min(num_audio_frames-1, a_timestamps[1]+padding)
+                if self.split == "train": #at test give the whole clip as input
+                    #negative padding
+                    padding = random.randint(0,50)
+                    s_frame = max(0, timestamp[0]-padding)
+                    e_frame = min(num_frames-1, timestamp[1]+padding)
+                    s_audio_frame = max(0, a_timestamps[0]-padding)
+                    e_audio_frame = min(num_audio_frames-1, a_timestamps[1]+padding)
 
                 #tokenizer for bert with [cls] token
                 _query = sentence.strip().lower()

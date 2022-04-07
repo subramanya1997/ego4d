@@ -68,12 +68,12 @@ class MEME_BASE(nn.Module):
         position = torch.tensor(range(len(types_))).to(self.device).repeat(video.shape[0],1)
         types = torch.tensor(types_).to(self.device).repeat(video.shape[0],1)
 
-        l_last = lengths[-1]
-        types_last = [2]*types.shape[1]
-        types_last_ = [0]*(l_last+1)+[1]*(l_last+1)+[2]*(t+1)+[2] #<bos>,<sep>video,<sep>audio,<query>query,<eos>
-        types_last[:len(types_last_)] = types_last_
-        types_last = torch.tensor(types_last).to(self.device).unsqueeze(0)
-        types[-1] = types_last
+        # l_last = lengths[-1]
+        # types_last = [2]*types.shape[1]
+        # types_last_ = [0]*(l_last+1)+[1]*(l_last+1)+[2]*(t+1)+[2] #<bos>,<sep>video,<sep>audio,<query>query,<eos>
+        # types_last[:len(types_last_)] = types_last_
+        # types_last = torch.tensor(types_last).to(self.device).unsqueeze(0)
+        # types[-1] = types_last
         #fix types of the last one
 
         return types, position
@@ -95,13 +95,14 @@ class MEME_BASE(nn.Module):
 
         # make same batch size
         
-        input_embed_a = torch.cat([bos[:-1],video[:-1],sep[:-1],audio[:-1],query[:-1],text[:-1],eos[:-1]],dim=1)
-        input_embed_b = torch.cat([bos[-1:],video[-1:,:lengths[-1]],sep[-1:],audio[-1:,:lengths[-1]],query[-1:],text[-1:],eos[-1:]],dim=1)
-        # pad input_embed_b to input_embed_a shape
-        pad_length = input_embed_a.shape[1]-input_embed_b.shape[1]
-        padding = pad.repeat(1,pad_length,1)
-        input_embed_b = torch.cat([input_embed_b,padding],dim=1)
-        input_embed = torch.cat([input_embed_a,input_embed_b],dim=0)
+        input_embed = torch.cat([bos,video,sep,audio,query,text,eos],dim=1)
+        # input_embed_a = torch.cat([bos[:-1],video[:-1],sep[:-1],audio[:-1],query[:-1],text[:-1],eos[:-1]],dim=1)
+        # input_embed_b = torch.cat([bos[-1:],video[-1:,:lengths[-1]],sep[-1:],audio[-1:,:lengths[-1]],query[-1:],text[-1:],eos[-1:]],dim=1)
+        # # pad input_embed_b to input_embed_a shape
+        # pad_length = input_embed_a.shape[1]-input_embed_b.shape[1]
+        # padding = pad.repeat(1,pad_length,1)
+        # input_embed_b = torch.cat([input_embed_b,padding],dim=1)
+        # input_embed = torch.cat([input_embed_a,input_embed_b],dim=0)
         model_input = input_embed + token_type_embeds + position_embeds
 
         return model_input
