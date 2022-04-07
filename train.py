@@ -16,7 +16,7 @@ from transformers import pipeline
 
 from model.meme import MEME
 from model.meme_loss import MEME_LOSS
-from model.utils import fix_seed
+from model.utils import fix_seed, make_windows
 from utils.metrics import decode_candidate_clips, get_best_segment, get_best_scoring_segment
 from utils.evaluate_records import evaluate_predicted_records
 from utils.data_processing import Ego4d_NLQ, get_train_loader, get_test_loader, Modal
@@ -42,6 +42,7 @@ def parse_arguments():
     parser.add_argument("-r", "--record-path", help="path for saving records", type=str, default='output/records/')
     parser.add_argument("-p", "--prefix", help="prefix for this run", type=str, default='meme')
     parser.add_argument("-l", "--loss-type", help="loss type to use", type=str, default='pos_loss')
+    parser.add_argument("-lr", "--learning_rate", help="learning rate", type=float, default=0.001)
     parser.add_argument("-w", "--wandb-name", \
                         help="wandb name for this run, defaults to random names by wandb",\
                         type=str, default=None)
@@ -84,10 +85,10 @@ def save_checkpoint(model, optimizer, epoch, loss, mIoU, path):
             'loss': loss,
             'mIoU': mIoU
             }, path)
-    wandb.save(path)
+    # wandb.save(path)
 
 def load_checkpoint(model, optimizer, path):
-    wandb.restore(path)
+    # wandb.restore(path)
     checkpoint = torch.load(path)
     model.load_state_dict(checkpoint['model_state_dict'])
     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
@@ -151,7 +152,14 @@ def process_model_inputs(data, args):
     if torch.sum(ends)==0:
         ends[-1][-1] = 1.0
 
-    return features, audio_features, query_emb, starts, ends, is_ans
+    features, lens = make_windows(features,args.clip_window)
+    audio_features, _ = make_windows(audio_features,args.clip_window)
+    query_emb, _ = make_windows(query_emb,args.clip_window)
+    starts, _ = make_windows(starts,args.clip_window,-100)
+    ends, _ = make_windows(ends,args.clip_window,-100)
+    is_ans, _ = make_windows(is_ans,args.clip_window,-100)
+
+    return features, audio_features, query_emb, starts, ends, is_ans, lens
 
 def get_modalities(args):
     modals = [Modal._Video,Modal._Transcript]
@@ -171,9 +179,9 @@ def train(model, dataloader, model_loss, optimizer, args, writer, epoch):
     issue_cids = []
     for data in tqdm_obj:
         (_, clip_id, features, audio_features, query_emb, starts, ends, is_ans, _) = data
-        features, audio_features, query_emb, starts, ends, is_ans = process_model_inputs(data, args)
+        features, audio_features, query_emb, starts, ends, is_ans, lens = process_model_inputs(data, args)
     
-        pred = model(features, query_emb, audio_features, modalities = get_modalities(args))
+        pred = model(features, query_emb, audio_features, modalities = get_modalities(args), lengths = lens)
         loss = model_loss(pred, starts, ends, is_ans, loss_type = args.loss_type)
         optimizer.zero_grad()
         loss.backward()
@@ -216,14 +224,17 @@ def test_model(model, dataloader, model_loss, args, writer, epoch, Test = False)
     precision = []
     for i, data in enumerate(tqdm_obj):
         (sample_id, clip_id, features, audio_features, query_emb, starts, ends, is_ans, _) = data
-        features, audio_features, query_emb, starts, ends, is_ans = process_model_inputs(data, args)
+        _, len_vid, _ = features.shape
+        features, audio_features, query_emb, starts, ends, is_ans, lens = process_model_inputs(data, args)
 
         with torch.no_grad():
-            pred = model(features, query_emb, audio_features, modalities = get_modalities(args))
+            pred = model(features, query_emb, audio_features, modalities = get_modalities(args), lengths = lens)
             loss = model_loss(pred, starts, ends, is_ans)
             
         # infer
         s, e, scores = infer_from_model(pred, args.topk, qa_pipeline)
+        if s==[]:
+            s, e = [0], [len_vid-1]
         # print(sample_id, clip_id, torch.sum(ends))
         end_idx = ends.shape[-1]-1 if torch.sum(ends) == 0 else np.where(ends.cpu().numpy() == 1)[-1][0]
         precision.append(calc_precision(pred, is_ans))
