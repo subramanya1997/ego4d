@@ -1,6 +1,7 @@
 #paths
-video_features_path: /scratch/snagabhushan_umass_edu/dataset/v1/clip_features/
-audio_features_path: /scratch/snagabhushan_umass_edu/dataset/v1/audio_features/
+video_features_path: /work/snagabhushan_umass_edu/dataset/v1/clip_features/
+audio_features_path: /work/snagabhushan_umass_edu/dataset/v1/audio_features/
+default_audio_path: /work/shantanuagar_umass_edu/ego4d/meme/ego4d/output/mean_audio.pt
 
 #constants
 video_fps: 30

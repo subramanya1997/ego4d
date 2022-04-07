@@ -47,9 +47,10 @@ def fix_seed(seed=0):
 def make_windows(x, window_size,pad_value=0.):
     x = torch.split(x, window_size, dim=1)
     x = list(x)
+    lens = [y.shape[1] for y in x]
     if len(x[0].shape) == 2:
         x[-1] = F.pad(x[-1],pad=(0,window_size-x[-1].shape[1]),value=pad_value)
     else:
         x[-1] = F.pad(x[-1],pad=(0,0,0,window_size-x[-1].shape[1]),value=pad_value)
     x = torch.cat(x,dim=0)
-    return x
+    return x, lens
