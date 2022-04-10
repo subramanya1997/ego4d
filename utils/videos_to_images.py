@@ -103,12 +103,12 @@ def extract_clip_frame_nos_wclips(video_md, clip_annotation, save_root):
         save_root - path to save extracted images
     """
     clip_uid = clip_annotation["clip_uid"]
-    # clip_fps = int(clip_annotation["clip_fps"])
+    clip_fps = int(clip_annotation["clip_fps"])
     # Select frames for clip
-    # video_fps = int(video_md["fps"])
+    video_fps = int(video_md["fps"])
     vsf = clip_annotation["clip_start_frame"]
     vef = clip_annotation["clip_end_frame"]
-    video_frames_for_clip = list(range(vsf, vef+1))
+    video_frames_for_clip = list(frames_to_select(vsf, vef, video_fps, clip_fps))
     # Only save images containing response_track and visual_crop
     annotation = clip_annotation["annotations"][0]
     frames_to_save = []
@@ -176,6 +176,9 @@ def clip_to_image_fn(inputs):
 
     # Get list of frames to save for annotated clips
     video_md = read_video_md(video_path)
+    # if video_uid == "f9c9c2ec-c5fd-46b8-bbb6-49c7dda702af":
+    #     print("in stats")
+    #     print(video_md)
     frame_nos_to_save = []
     # Create root directory to save clip
     os.makedirs(os.path.join(args.save_root, video_uid), exist_ok=True)
