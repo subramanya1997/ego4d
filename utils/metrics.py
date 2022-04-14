@@ -24,6 +24,7 @@ def get_best_segment(preds, topk=5):
             score += log_pred[0, i]
             i+=1
         end = i-1
+        # score/=(end-start+1) # Normalize
         segments.append((score, start, end))
 
     segments = sorted(segments, key=lambda x: x[0], reverse=True)

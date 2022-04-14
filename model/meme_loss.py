@@ -14,7 +14,7 @@ class MEME_LOSS(nn.Module):
         self.loss_weight = self.loss_weight.to(args.device).to(torch.float)
 
         self.loss_fn = nn.BCELoss()
-        self.ce_loss = nn.CrossEntropyLoss(weight = self.loss_weight)
+        self.ce_loss = nn.CrossEntropyLoss(weight = self.loss_weight,ignore_index=-100)
         
         
     def forward(self, pred, target_start, target_end, target_in_range,loss_type='pos_loss'):

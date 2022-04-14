@@ -15,7 +15,7 @@ from tqdm import tqdm
 import torch
 from torch.utils.data import Dataset, DataLoader
 
-from transformers import RobertaTokenizer, RobertaModel
+from transformers import AutoTokenizer, AutoModel
 
 #import custom functions
 from utils.data_utils import load_pickle, save_pickle
@@ -63,8 +63,9 @@ class Ego4d_NLQ(Dataset):
                 self.idx_sample_query = saved_data['idx_sample_query']
                 self.sample_query_map = saved_data['sample_query_map']
                 self.video_feature_size = saved_data['video_feature_size']
-                self.audio_feature_size = saved_data['audio_feature_size']
+                self.audio_feature_size = 1024 # saved_data['audio_feature_size']
                 self.query_feature_size = saved_data['query_feature_size']
+                # self.default_audio_path = saved_data['default_audio_path']
                 #models and options
                 self.wordEmbedding_model =  self.parsed_args.wordEmbedding_model
                 self.max_frames = self.parsed_args.max_frames if self.parsed_args.max_frames != 'None' else None
@@ -74,6 +75,7 @@ class Ego4d_NLQ(Dataset):
                 self.audio_features_path = self.parsed_args.audio_features_path
                 self.modalities = set(modalities) if modalities is not None else None
                 self.filter_vids = set(filter_vids) if filter_vids is not None else None
+                # self.default_audio = self._load_default_audio(self.default_audio_path)
 
                 self._get_final_dataset()
                 print("Done processing data...")
@@ -112,6 +114,7 @@ class Ego4d_NLQ(Dataset):
         self.audio_features_path = self.parsed_args.audio_features_path
         self.modalities = set(modalities) if modalities is not None else None
         self.filter_vids = set(filter_vids) if filter_vids is not None else None
+        # self.default_audio_path = self.parsed_args.default_audio_path
         
         assert (
             self.video_features_path is not None
@@ -135,7 +138,10 @@ class Ego4d_NLQ(Dataset):
         print(f"#{self.split} frames: {self.idx_counter}")
         print(f"#{self.split} clips: {self.idx_sample_query}")
         print(f"#{self.split} final clips after filters: {len(self.data)}")
-
+        
+        # self.default_audio = self._load_default_audio(self.default_audio_path)
+        print("Done loading default audio...")
+        
         # get feature sizes
         if self.idx_counter != 0:
             """ sample_id, clip_id, clip_features, audio_features, query_features, is_s, is_e, is_ans, frame_length """
@@ -143,7 +149,7 @@ class Ego4d_NLQ(Dataset):
             if clip_feature is not None:
                 self.video_feature_size = clip_feature[0].shape[-1]
             if audio_features is not None:
-                self.audio_feature_size = audio_features[0][0].shape[-1]
+                self.audio_feature_size = 1024 # audio_features[0][0].shape[-1]
             if query_features is not None:
                 self.query_feature_size = query_features[0].shape[-1]
         else:
@@ -175,6 +181,9 @@ class Ego4d_NLQ(Dataset):
 
         audio_path = sample_query['audio_path']
 
+        # clip_path = clip_path.replace('/scratch/snagabhushan_umass_edu/dataset/v1/clip_features/','data/saved_clip_features/')
+        # audio_path = clip_path.replace('/scratch/snagabhushan_umass_edu/dataset/v1/clip_features/','/work/snagabhushan_umass_edu/dataset/v1/audio_features_from_video/')
+        
         clip_features = None
         audio_features = None
         if self.modalities is not None:
@@ -208,7 +217,9 @@ class Ego4d_NLQ(Dataset):
         info = {"Video Feature Size": self.video_feature_size,
                 "Audio Feature Size": self.audio_feature_size,
                 "Query Feature Size": self.query_feature_size,
-                "Frame length": frame_length}
+                "Frame length": frame_length,
+                # "default_audio": self.default_audio
+                }
         
         return sample_id, clip_id, clip_features, audio_features, query_features, is_s, is_e, is_ans, info
 
@@ -250,6 +261,7 @@ class Ego4d_NLQ(Dataset):
         saved_data['video_feature_size'] = self.video_feature_size
         saved_data['audio_feature_size'] = self.audio_feature_size 
         saved_data['query_feature_size'] = self.query_feature_size
+        # saved_data['default_audio_path'] = self.default_audio_path
 
         #if not os.path.exists(path): #save create folder
             #pass
@@ -370,6 +382,10 @@ class Ego4d_NLQ(Dataset):
 
             self.data.append((_id, info))
 
+    def _load_default_audio(self, path):
+        """Load default audio"""
+        print("Loading default audio...")
+        return torch.load(path)
     
     def _process_dataset(self, data):
         """Process the entire json"""
@@ -377,9 +393,8 @@ class Ego4d_NLQ(Dataset):
         # use cuda if available
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         # text features models
-        #tokenizer = BertTokenizer.from_pretrained(self.parsed_args.wordEmbedding_model)
-        tokenizer = RobertaTokenizer.from_pretrained(self.parsed_args.wordEmbedding_model)
-        model = RobertaModel.from_pretrained(self.parsed_args.wordEmbedding_model, output_hidden_states = True ).to(device) # Whether the model returns all hidden-states.
+        tokenizer = AutoTokenizer.from_pretrained(self.parsed_args.wordEmbedding_model)
+        model = AutoModel.from_pretrained(self.parsed_args.wordEmbedding_model, output_hidden_states = True ).to(device) # Whether the model returns all hidden-states.
         model.eval()         
 
         for clp, data_item in tqdm(data.items(), total=len(data), desc=f"process episodic nlq {self.split}"): 
@@ -486,6 +501,7 @@ def train_collate_fn(batch):
     assert len(clip_features) == 1
     clip_features = torch.stack(clip_features)
 
+    # default_audio = info[0]['default_audio'].repeat(clip_features[0].shape[0], 1).to(clip_features)
     default_audio = torch.zeros(clip_features[0].shape[0],info[0]['Audio Feature Size']).to(clip_features)
     audio_features = [torch.mean(x,dim=1) if x is not None else default_audio for x in audio_features]
     audio_features = torch.stack(audio_features)
