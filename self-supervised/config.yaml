@@ -17,15 +17,17 @@ randomize: False
 
 ## data stuff
 update_dataloader: False
-dataloader_cache_path: /scratch/snagabhushan_umass_edu/dataset/v1/save/
+dataloader_cache_path: /work/snagabhushan_umass_edu/dataset/v1/save/
 dataloader_config: ./model/dataset_config.yaml
-model_save_path: /scratch/snagabhushan_umass_edu/ego4d_project/save/model/
+model_save_path: /work/snagabhushan_umass_edu/ego4d_project/save/model/
 dataloader_type: multi_narration
+loss_type: Distance
+reduction: mean
 
 
 # Video Preprocessing Parameters
-input_train_split: /scratch/sreeragiyer_umass_edu/ego4d/samples/sample_ego4d_train.json
-input_val_split: /scratch/sreeragiyer_umass_edu/ego4d/samples/sample_ego4d_val.json
-input_test_split: /scratch/sreeragiyer_umass_edu/ego4d/samples/sample_ego4d_test.json
+input_train_split: /old/scratch/sreeragiyer_umass_edu/ego4d/samples/sample_ego4d_train.json
+input_val_split: /old/scratch/sreeragiyer_umass_edu/ego4d/samples/sample_ego4d_val.json
+input_test_split: /old/scratch/sreeragiyer_umass_edu/ego4d/samples/sample_ego4d_test.json
 audio: True
 resume: False
