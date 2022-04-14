@@ -65,7 +65,7 @@ class Ego4d_NLQ(Dataset):
                 self.video_feature_size = saved_data['video_feature_size']
                 self.audio_feature_size = 1024 # saved_data['audio_feature_size']
                 self.query_feature_size = saved_data['query_feature_size']
-                self.default_audio_path = saved_data['default_audio_path']
+                # self.default_audio_path = saved_data['default_audio_path']
                 #models and options
                 self.wordEmbedding_model =  self.parsed_args.wordEmbedding_model
                 self.max_frames = self.parsed_args.max_frames if self.parsed_args.max_frames != 'None' else None
@@ -75,7 +75,7 @@ class Ego4d_NLQ(Dataset):
                 self.audio_features_path = self.parsed_args.audio_features_path
                 self.modalities = set(modalities) if modalities is not None else None
                 self.filter_vids = set(filter_vids) if filter_vids is not None else None
-                self.default_audio = self._load_default_audio(self.default_audio_path)
+                # self.default_audio = self._load_default_audio(self.default_audio_path)
 
                 self._get_final_dataset()
                 print("Done processing data...")
@@ -114,7 +114,7 @@ class Ego4d_NLQ(Dataset):
         self.audio_features_path = self.parsed_args.audio_features_path
         self.modalities = set(modalities) if modalities is not None else None
         self.filter_vids = set(filter_vids) if filter_vids is not None else None
-        self.default_audio_path = self.parsed_args.default_audio_path
+        # self.default_audio_path = self.parsed_args.default_audio_path
         
         assert (
             self.video_features_path is not None
@@ -139,7 +139,7 @@ class Ego4d_NLQ(Dataset):
         print(f"#{self.split} clips: {self.idx_sample_query}")
         print(f"#{self.split} final clips after filters: {len(self.data)}")
         
-        self.default_audio = self._load_default_audio(self.default_audio_path)
+        # self.default_audio = self._load_default_audio(self.default_audio_path)
         print("Done loading default audio...")
         
         # get feature sizes
@@ -181,6 +181,9 @@ class Ego4d_NLQ(Dataset):
 
         audio_path = sample_query['audio_path']
 
+        # clip_path = clip_path.replace('/scratch/snagabhushan_umass_edu/dataset/v1/clip_features/','data/saved_clip_features/')
+        # audio_path = clip_path.replace('/scratch/snagabhushan_umass_edu/dataset/v1/clip_features/','/work/snagabhushan_umass_edu/dataset/v1/audio_features_from_video/')
+        
         clip_features = None
         audio_features = None
         if self.modalities is not None:
@@ -215,7 +218,8 @@ class Ego4d_NLQ(Dataset):
                 "Audio Feature Size": self.audio_feature_size,
                 "Query Feature Size": self.query_feature_size,
                 "Frame length": frame_length,
-                "default_audio": self.default_audio}
+                # "default_audio": self.default_audio
+                }
         
         return sample_id, clip_id, clip_features, audio_features, query_features, is_s, is_e, is_ans, info
 
@@ -257,7 +261,7 @@ class Ego4d_NLQ(Dataset):
         saved_data['video_feature_size'] = self.video_feature_size
         saved_data['audio_feature_size'] = self.audio_feature_size 
         saved_data['query_feature_size'] = self.query_feature_size
-        saved_data['default_audio_path'] = self.default_audio_path
+        # saved_data['default_audio_path'] = self.default_audio_path
 
         #if not os.path.exists(path): #save create folder
             #pass
@@ -422,13 +426,13 @@ class Ego4d_NLQ(Dataset):
                 s_audio_frame = 0
                 e_audio_frame = num_audio_frames-1
 
-                # if self.split == "train": #at test give the whole clip as input
-                #     #negative padding
-                #     padding = random.randint(0,50)
-                #     s_frame = max(0, timestamp[0]-padding)
-                #     e_frame = min(num_frames-1, timestamp[1]+padding)
-                #     s_audio_frame = max(0, a_timestamps[0]-padding)
-                #     e_audio_frame = min(num_audio_frames-1, a_timestamps[1]+padding)
+                if self.split == "train": #at test give the whole clip as input
+                    #negative padding
+                    padding = random.randint(0,50)
+                    s_frame = max(0, timestamp[0]-padding)
+                    e_frame = min(num_frames-1, timestamp[1]+padding)
+                    s_audio_frame = max(0, a_timestamps[0]-padding)
+                    e_audio_frame = min(num_audio_frames-1, a_timestamps[1]+padding)
 
                 #tokenizer for bert with [cls] token
                 _query = sentence.strip().lower()
@@ -497,8 +501,8 @@ def train_collate_fn(batch):
     assert len(clip_features) == 1
     clip_features = torch.stack(clip_features)
 
-    default_audio = info[0]['default_audio'].repeat(clip_features[0].shape[0], 1).to(clip_features)
-    # default_audio = torch.zeros(clip_features[0].shape[0],info[0]['Audio Feature Size']).to(clip_features)
+    # default_audio = info[0]['default_audio'].repeat(clip_features[0].shape[0], 1).to(clip_features)
+    default_audio = torch.zeros(clip_features[0].shape[0],info[0]['Audio Feature Size']).to(clip_features)
     audio_features = [torch.mean(x,dim=1) if x is not None else default_audio for x in audio_features]
     audio_features = torch.stack(audio_features)
     

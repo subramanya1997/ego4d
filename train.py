@@ -47,6 +47,7 @@ def parse_arguments():
                         help="wandb name for this run, defaults to random names by wandb",\
                         type=str, default=None)
     parser.add_argument("--model-save-path", help="path of the directory with model checkpoint", type=str, default=None)
+    parser.add_argument("--load-path", help="path of the directory with model checkpoint that you want to load", type=str, default=None)
     parser.add_argument("--loss_weight", help="loss weight", type=float, default=0.25)
     add_bool_arg(parser, 'resume', default=False)
     add_bool_arg(parser, 'audio', default=True)
@@ -69,6 +70,9 @@ def parse_arguments():
         parsed_args.model_save_path = "./output/models/"
     parsed_args.best_model_path = os.path.join(parsed_args.model_save_path, f"{parsed_args.prefix}_{parsed_args.wandb_name}_best.pth")
     parsed_args.last_model_path = os.path.join(parsed_args.model_save_path, f"{parsed_args.prefix}_{parsed_args.wandb_name}_last.pth")
+
+    if parsed_args.load_path is None:
+        parsed_args.load_path = parsed_args.last_model_path
 
     if not parsed_args.force_cpu:
         parsed_args.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -136,6 +140,8 @@ def infer_from_model(pred, topk, qa_pipeline):
     # s, e, scores = decode_candidate_clips(qa_pipeline, start, end, topk, max_len)
     s, e, scores = get_best_segment(pred[:,:,-1].cpu().numpy(), topk)
     # pred_p = torch.nn.functional.softmax(pred, dim=-1)
+    # s, e, scores = get_best_segment_improved(pred_p.cpu().numpy(), topk)
+    # pred_p = torch.nn.functional.softmax(pred, dim=-1)
     # s, e, scores = get_best_scoring_segment(pred_p.cpu().numpy(), topk)
     return s, e, scores
 
@@ -152,12 +158,14 @@ def process_model_inputs(data, args):
     if torch.sum(ends)==0:
         ends[-1][-1] = 1.0
 
-    features, lens = make_windows(features,args.clip_window)
-    audio_features, _ = make_windows(audio_features,args.clip_window)
-    query_emb, _ = make_windows(query_emb,args.clip_window)
-    starts, _ = make_windows(starts,args.clip_window,-100)
-    ends, _ = make_windows(ends,args.clip_window,-100)
-    is_ans, _ = make_windows(is_ans,args.clip_window,-100)
+    # features, lens = make_windows(features,args.clip_window)
+    # audio_features, _ = make_windows(audio_features,args.clip_window)
+    # query_emb, _ = make_windows(query_emb,args.clip_window)
+    # starts, _ = make_windows(starts,args.clip_window,-100)
+    # ends, _ = make_windows(ends,args.clip_window,-100)
+    # is_ans, _ = make_windows(is_ans,args.clip_window,-100)
+
+    lens = [features.shape[1]]
 
     return features, audio_features, query_emb, starts, ends, is_ans, lens
 
@@ -305,7 +313,7 @@ def cache_records_and_evaluate(records, epoch, n_iter, args, nlq_data, writer, t
 
 
 if __name__ == "__main__":
-    # fix_seed(1234)
+    fix_seed(42)
     args = parse_arguments()
     args, train_loader, val_loader, test_loader, val_nlq, test_nlq = get_dataloader(args)
     args.embedding_dim = args.video_feature_size + args.query_feature_size 
@@ -319,7 +327,7 @@ if __name__ == "__main__":
     start_epoch = 0
 
     if wandb.run.resumed or args.resume:
-        model, optimizer, start_epoch, loss, best_mIoU = load_checkpoint(model, optimizer, args.last_model_path)
+        model, optimizer, start_epoch, loss, best_mIoU = load_checkpoint(model, optimizer, args.load_path)
 
     for epoch in range(start_epoch, args.num_epochs):
         train_loss = train(model, train_loader, model_loss, optimizer, args, writer, epoch)

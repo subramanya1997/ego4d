@@ -8,8 +8,8 @@ topk: 5
 model: MLP2_transformer
 clip_window: 1000
 dropout: 0.1
-# loss_weight: 0.2422 #for trimmed training input
-loss_weight: 0.9713 #for full video training input
+loss_weight: 0.2422 #for trimmed training input
+# loss_weight: 0.9713 #for full video training input
 
 ## others
 force_cpu: false
@@ -18,8 +18,9 @@ boundary_smoothing: 9 #smooth over 10 features # not needed anymore
 
 ## data stuff
 update_dataloader: False
-# dataloader_cache_path: /scratch/snagabhushan_umass_edu/dataset/v1/save/nlq
-dataloader_cache_path: /work/shantanuagar_umass_edu/ego4d/nlq/dataset/
+dataloader_cache_path: /work/snagabhushan_umass_edu/dataset/v1/save/nlq
+# dataloader_cache_path: /work/shantanuagar_umass_edu/ego4d/nlq/dataset/
+# dataloader_cache_path: /work/shantanuagar_umass_edu/ego4d/nlq/dataset/whole_train
 dataloader_config: ./dataset_config.yaml
 model_save_path: /work/shantanuagar_umass_edu/ego4d/model/nlq/
 # checkpoint_path: None
