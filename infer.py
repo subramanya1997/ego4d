@@ -49,6 +49,7 @@ def parse_arguments():
     parser.add_argument("--model-save-path", help="path of the directory with model checkpoint", type=str, default=None)
     parser.add_argument("--load-path", help="path of the directory with model checkpoint that you want to load", type=str, default=None)
     parser.add_argument("--loss_weight", help="loss weight", type=float, default=0.25)
+    parser.add_argument("--loss_weight2", help="loss weight", type=float, default=0.25)
     add_bool_arg(parser, 'resume', default=False)
     add_bool_arg(parser, 'audio', default=True)
     try:
@@ -93,7 +94,7 @@ def save_checkpoint(model, optimizer, epoch, loss, mIoU, path):
 
 def load_checkpoint(model, optimizer, path):
     # wandb.restore(path)
-    checkpoint = torch.load(path)
+    checkpoint = torch.load(path,map_location=torch.device('cpu'))
     model.load_state_dict(checkpoint['model_state_dict'])
     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
     epoch = checkpoint['epoch']
@@ -138,14 +139,15 @@ def infer_from_model(pred, topk, qa_pipeline):
     # end = pred[:, 1].cpu().numpy()
     # max_len = args.max_len
     # s, e, scores = decode_candidate_clips(qa_pipeline, start, end, topk, max_len)
-    s, e, scores = get_best_segment(pred[:,:,-1].cpu().numpy(), topk)
     # pred_p = torch.nn.functional.softmax(pred, dim=-1)
-    # s, e, scores = get_best_segment_improved(pred_p.cpu().numpy(), topk)
+    # s, e, scores = get_best_segment(pred_p[:,:,-1].cpu().numpy(), topk)
+    pred_p = torch.nn.functional.softmax(pred, dim=-1)
+    s, e, scores = get_best_segment_improved(pred_p.cpu().numpy(), topk)
     # pred_p = torch.nn.functional.softmax(pred, dim=-1)
     # s, e, scores = get_best_scoring_segment(pred_p.cpu().numpy(), topk)
     return s, e, scores
 
-def process_model_inputs(data, args):
+def process_model_inputs(data, args,windows=False):
     (_, clip_id, features, audio_features, query_emb, starts, ends, is_ans, _) = data
     # process_modality_features
     features = features.to(args.device)
@@ -158,14 +160,15 @@ def process_model_inputs(data, args):
     if torch.sum(ends)==0:
         ends[-1][-1] = 1.0
 
-    # features, lens = make_windows(features,args.clip_window)
-    # audio_features, _ = make_windows(audio_features,args.clip_window)
-    # query_emb, _ = make_windows(query_emb,args.clip_window)
-    # starts, _ = make_windows(starts,args.clip_window,-100)
-    # ends, _ = make_windows(ends,args.clip_window,-100)
-    # is_ans, _ = make_windows(is_ans,args.clip_window,-100)
-
     lens = [features.shape[1]]
+    
+    if windows:
+        features, lens = make_windows(features,args.clip_window)
+        audio_features, _ = make_windows(audio_features,args.clip_window)
+        query_emb, _ = make_windows(query_emb,args.clip_window)
+        starts, _ = make_windows(starts,args.clip_window,-100)
+        ends, _ = make_windows(ends,args.clip_window,-100)
+        is_ans, _ = make_windows(is_ans,args.clip_window,-100)
 
     return features, audio_features, query_emb, starts, ends, is_ans, lens
 
@@ -240,7 +243,10 @@ def test_model(model, dataloader, model_loss, args, writer, epoch, Test = False)
             loss = model_loss(pred, starts, ends, is_ans)
             
         # infer
-        s, e, scores = infer_from_model(pred, args.topk, qa_pipeline)
+        _,_,d = pred.shape
+        pred_ = pred.reshape(1, -1, d)
+        #print(pred.shape,pred_.shape)
+        s, e, scores = infer_from_model(pred_, args.topk, qa_pipeline)
         if s==[]:
             s, e = [0], [len_vid-1]
         # print(sample_id, clip_id, torch.sum(ends))
@@ -323,7 +329,7 @@ if __name__ == "__main__":
     best_mIoU = 0
     start_epoch = 0
 
-    model, optimizer, start_epoch, loss, best_mIoU = load_checkpoint(model, optimizer, "meme.pth")
+    model, optimizer, start_epoch, loss, best_mIoU = load_checkpoint(model, optimizer, "/work/shantanuagar_umass_edu/ego4d/model/nlq/meme_long_train_input_last.pth")
 
     epoch = 0
     val_loss, records = test_model(model, val_loader, model_loss, args, writer, epoch)

@@ -54,3 +54,11 @@ def make_windows(x, window_size,pad_value=0.):
         x[-1] = F.pad(x[-1],pad=(0,0,0,window_size-x[-1].shape[1]),value=pad_value)
     x = torch.cat(x,dim=0)
     return x, lens
+
+def label_windows(is_ans):
+    # is_ans.shape = (batch_size, window_size)
+    _, w_s = is_ans.shape
+    has_ans = is_ans.sum(dim=1)
+    labels = has_ans > 0
+    return labels
+

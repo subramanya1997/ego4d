@@ -34,7 +34,7 @@ class MEME_BASE(nn.Module):
             nn.Dropout(dropout),
         )
         
-    def forward(self, video, text, audio, modalities=None, lengths = None, **kwargs):
+    def forward(self, video, text, audio, modalities=None, lengths = None, window_labels = False, **kwargs):
         ## TRIM INPUT
         if video.shape[1]*2+5>self.max_len:
             win_size = int((self.max_len - 5)/2) - 1
@@ -51,7 +51,10 @@ class MEME_BASE(nn.Module):
         output = self.model(inputs_embeds = input_)[0]
 
         #output only for each video frame
-        output = output[:,1:l+1,:] #1 for <bos>
+        if window_labels:
+            output = output[:,:l+1,:] #1st embedding for window label
+        else:
+            output = output[:,1:l+1,:] #1 for <bos>
         return output
 
     def set_special_tokens(self):

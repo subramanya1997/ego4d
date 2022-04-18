@@ -49,6 +49,7 @@ def parse_arguments():
     parser.add_argument("--model-save-path", help="path of the directory with model checkpoint", type=str, default=None)
     parser.add_argument("--load-path", help="path of the directory with model checkpoint that you want to load", type=str, default=None)
     parser.add_argument("--loss_weight", help="loss weight", type=float, default=0.25)
+    parser.add_argument("--loss_weight2", help="loss weight", type=float, default=0.25)
     add_bool_arg(parser, 'resume', default=False)
     add_bool_arg(parser, 'audio', default=True)
     try:
@@ -313,7 +314,7 @@ def cache_records_and_evaluate(records, epoch, n_iter, args, nlq_data, writer, t
 
 
 if __name__ == "__main__":
-    fix_seed(42)
+    # fix_seed(42)
     args = parse_arguments()
     args, train_loader, val_loader, test_loader, val_nlq, test_nlq = get_dataloader(args)
     args.embedding_dim = args.video_feature_size + args.query_feature_size 

@@ -1,6 +1,6 @@
 # Model Params
 ## Hyperparams
-hidden_size: 1024
+hidden_size: 768
 num_epochs: 12
 learning_rate: 0.001
 batch_size: 1
@@ -18,8 +18,8 @@ boundary_smoothing: 9 #smooth over 10 features # not needed anymore
 
 ## data stuff
 update_dataloader: False
-dataloader_cache_path: /work/snagabhushan_umass_edu/dataset/v1/save/nlq
-# dataloader_cache_path: /work/shantanuagar_umass_edu/ego4d/nlq/dataset/
+# dataloader_cache_path: /work/snagabhushan_umass_edu/dataset/v1/save/nlq
+dataloader_cache_path: /work/shantanuagar_umass_edu/ego4d/nlq/dataset/roberta_large
 dataloader_config: ./dataset_config.yaml
 model_save_path: /work/shantanuagar_umass_edu/ego4d/model/nlq/
 # checkpoint_path: None

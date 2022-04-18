@@ -33,6 +33,70 @@ def get_best_segment(preds, topk=5):
     scores = [x[0] for x in segments[:topk]]
     return starts, ends, scores
 
+def get_best_segment_improved(preds, topk=5):
+    # find longest sequence with max log sum score
+    mask = preds[:,:,1]>=preds[:,:,0]
+    log_pred = np.log(preds[:,:,-1])
+    segments = []
+    i=0
+    start = -1
+    end = -1
+    while i<log_pred.shape[1]:
+        if not mask[0,i]:
+            i+=1
+            continue
+        score = 0
+        start = i
+        while i<log_pred.shape[1] and mask[0,i]:
+            score += log_pred[0, i]
+            i+=1
+        end = i-1
+        # score/=(end-start+1) # Normalize
+        segments.append((score, start, end))
+
+    segments = sorted(segments, key=lambda x: x[0], reverse=True)
+    starts = [x[1] for x in segments[:topk]]
+    ends = [x[2] for x in segments[:topk]]
+    scores = [x[0] for x in segments[:topk]]
+    return starts, ends, scores
+
+
+def get_best_segment_improved_cluster(preds, topk=5, cluster=2):
+    # find longest sequence with max log sum score
+    mask = preds[:,:,1]>=preds[:,:,0]
+    log_pred = np.log(preds[:,:,-1])
+    segments = []
+    i=0
+    start = -1
+    end = -1
+    while i<log_pred.shape[1]:
+        if not mask[0,i]:
+            i+=1
+            continue
+        score = 0
+        start = i
+        while i<log_pred.shape[1] and mask[0,i]:
+            score += log_pred[0, i]
+            i+=1
+        end = i-1
+        # score/=(end-start+1) # Normalize
+        segments.append((score, start, end))
+
+    #cluster every 2 segments
+    new_clusters_start = [x[1] for x in segments[:-(cluster+1)]]
+    new_clusters_end = [x[2] for x in segments[(cluster-1):]]
+    new_clusters_score = [np.sum(log_pred[0, x:new_clusters_end[i]+1]) for i,x in enumerate(new_clusters_start)]
+
+    new_segments = [(x, new_clusters_start[i],new_clusters_end[i]) for i,x in enumerate(new_clusters_score)]
+    segments+=new_segments
+
+    segments = sorted(segments, key=lambda x: x[0], reverse=True)
+    starts = [x[1] for x in segments[:topk]]
+    ends = [x[2] for x in segments[:topk]]
+    scores = [x[0] for x in segments[:topk]]
+    return starts, ends, scores
+
+
 def get_best_scoring_segment(preds, topk=5):
     '''
     preds are logits

@@ -1,8 +1,10 @@
+import sys
 import torch
 import scipy.signal
 import scipy.signal.windows
 import torch.nn as nn
 import torch.nn.functional as F
+from model.utils import label_windows
 
 class MEME_LOSS(nn.Module):
     def __init__(self, args):
@@ -13,18 +15,40 @@ class MEME_LOSS(nn.Module):
         self.loss_weight = torch.tensor([1-self.loss_weight,self.loss_weight])
         self.loss_weight = self.loss_weight.to(args.device).to(torch.float)
 
+        self.loss_weight2 = args.loss_weight2
+
         self.loss_fn = nn.BCELoss()
+        self.ce_loss_fn = nn.CrossEntropyLoss()
         self.ce_loss = nn.CrossEntropyLoss(weight = self.loss_weight,ignore_index=-100)
         
         
-    def forward(self, pred, target_start, target_end, target_in_range,loss_type='pos_loss'):
+    def forward(self, pred, target_start, target_end, target_in_range, loss_type='pos_loss'):
         if loss_type == 'hard_qa':
             output = self.em_joint_loss(pred, target_start, target_end, target_in_range)
         elif loss_type == 'soft_qa':
             output = self.qa_soft_loss(pred, target_start, target_end, target_in_range)
         elif loss_type == 'pos_loss':
             output = self.pos_loss(pred, target_in_range)
+        elif loss_type == 'joint_loss':
+            print("here")
+            output = self.joint_loss(pred, target_in_range)
         return output
+
+    def joint_loss(self, pred, target_in_range):
+        # have to weight probabilities with the probability of the window
+        window_probs = pred[:,0,1]
+        window_probs = F.softmax(window_probs, dim=0).to(torch.float)
+
+        # compute the loss
+        window_labels = label_windows(target_in_range).requires_grad_(False)
+        classif_loss = self.loss_fn(window_probs, window_labels.to(pred.device).to(torch.float))
+        sys.stdout.flush()
+
+        loss_pos = self.pos_loss(pred[:,1:], target_in_range)
+        loss = (1 - self.loss_weight2) * classif_loss + self.loss_weight2 * loss_pos
+        sys.stdout.flush()
+
+        return loss
 
     def pos_loss(self, pred, target_in_range):
         '''
