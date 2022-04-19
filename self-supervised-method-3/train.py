@@ -128,16 +128,25 @@ def train(model, dataloader, model_loss, optimizer, args, writer, epoch):
         query_frame_numbers = query_frame_numbers.to(args.device)
         
         # output, frame_pred, reorder_pred, frame_number_pred, clsTokens = model(video_features, query_features, text_length, audio_features, args, modalities = get_modalities(args))
-        output, clsTokens, masks = model(video_features, query_features, text_length, audio_features, args, modalities = get_modalities(args))
+        output, clsTokens, masks = model(video_features, query_features, text_length, audio_features, query_frame_numbers, args, modalities = get_modalities(args))
         audioLoss = 0
         textLoss = 0
+        videoLoss = 0
+
+        # frame_number_pred = output[0][0][clsTokens['Query'], 0]
+        # tempPostionLoss = model_loss(frame_number_pred, query_frame_numbers, loss_type=args.loss_type)
+        # print(tempPostionLoss)
+
+        if args.mask_video:
+            videoMasks = output[0][0][masks['Video']]
+            videoLoss = model_loss(videoMasks, masks['VideoEmbedd'], "Cosine")
         if args.mask_audio:
             audioMasks = output[0][0][masks['Audio']]
             audioLoss = model_loss(audioMasks, masks['AudioEmbedd'], "Cosine")
         if args.mask_text:
             textMasks = output[0][0][masks['Query']]
             textLoss = model_loss(textMasks, masks['QueryEmbedd'], "Cosine")
-        loss = audioLoss + textLoss
+        loss = audioLoss + textLoss + videoLoss
 
         # queryClS = output[0][clsTokens['Query'], 0]
         # print(audioLoss, textLoss, queryClS.shape)
@@ -200,17 +209,21 @@ def test_model(model, dataloader, model_loss, args, writer, epoch, Test = False)
 
         with torch.no_grad():
             # output, frame_pred, reorder_pred, frame_number_pred, clsTokens = model(video_features, query_features, text_length, audio_features, args, modalities = get_modalities(args))
-            output, clsTokens, masks = model(video_features, query_features, text_length, audio_features, args, modalities = get_modalities(args))
+            output, clsTokens, masks = model(video_features, query_features, text_length, audio_features, query_frame_numbers, args, modalities = get_modalities(args))
         
         audioLoss = 0
         textLoss = 0
+        videoLoss = 0
+        if args.mask_video:
+            videoMasks = output[0][0][masks['Video']]
+            videoLoss = model_loss(videoMasks, masks['VideoEmbedd'], "Cosine")
         if args.mask_audio:
             audioMasks = output[0][0][masks['Audio']]
             audioLoss = model_loss(audioMasks, masks['AudioEmbedd'], "Cosine")
         if args.mask_text:
             textMasks = output[0][0][masks['Query']]
             textLoss = model_loss(textMasks, masks['QueryEmbedd'], "Cosine")
-        loss = audioLoss + textLoss
+        loss = audioLoss + textLoss + videoLoss
 
         # loss = model_loss(frame_number_pred, query_frame_numbers, loss_type=args.loss_type)
         

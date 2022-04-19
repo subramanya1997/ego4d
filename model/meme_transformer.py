@@ -68,12 +68,13 @@ class MEME_BASE(nn.Module):
         position = torch.tensor(range(len(types_))).to(self.device).repeat(video.shape[0],1)
         types = torch.tensor(types_).to(self.device).repeat(video.shape[0],1)
 
-        l_last = lengths[-1]
-        types_last = [2]*types.shape[1]
-        types_last_ = [0]*(l_last+1)+[1]*(l_last+1)+[2]*(t+1)+[2] #<bos>,<sep>video,<sep>audio,<query>query,<eos>
-        types_last[:len(types_last_)] = types_last_
-        types_last = torch.tensor(types_last).to(self.device).unsqueeze(0)
-        types[-1] = types_last
+        # l_last = lengths[-1]
+        # types_last = [2]*types.shape[1]
+        # types_last_ = [0]*(l_last+1)+[1]*(l_last+1)+[2]*(t+1)+[2] #<bos>,<sep>video,<sep>audio,<query>query,<eos>
+        # types_last[:len(types_last_)] = types_last_
+        # types_last = torch.tensor(types_last).to(self.device).unsqueeze(0)
+        # print(types_last.shape, types.shape, lengths)
+        # types[-1] = types_last
         #fix types of the last one
 
         return types, position

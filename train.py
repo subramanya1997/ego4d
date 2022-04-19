@@ -20,6 +20,7 @@ from model.utils import fix_seed, make_windows
 from utils.metrics import decode_candidate_clips, get_best_segment, get_best_scoring_segment
 from utils.evaluate_records import evaluate_predicted_records
 from utils.data_processing import Ego4d_NLQ, get_train_loader, get_test_loader, Modal
+from collections import defaultdict
 
 ISSUE_CIDS = {}
 
@@ -104,9 +105,9 @@ def load_checkpoint(model, optimizer, path):
 
 def get_dataloader(args):
     print("Loading data")
-    train_nlq = Ego4d_NLQ(args.input_train_split, modalities=None, split="train", save_or_load_path=f"{args.dataloader_cache_path}/final_train.pkl", config_file = args.dataloader_config)
-    val_nlq = Ego4d_NLQ(args.input_val_split, modalities=None, split="val", save_or_load_path=f"{args.dataloader_cache_path}/final_val.pkl", config_file = args.dataloader_config)
-    test_nlq = Ego4d_NLQ(args.input_test_split, modalities=None, split="test", save_or_load_path=f"{args.dataloader_cache_path}/final_test.pkl", config_file = args.dataloader_config)
+    train_nlq = Ego4d_NLQ(args.input_train_split, modalities=None, split="train", save_or_load_path=f"{args.dataloader_cache_path}/final_roberta_train.pkl", config_file = args.dataloader_config)
+    val_nlq = Ego4d_NLQ(args.input_val_split, modalities=None, split="val", save_or_load_path=f"{args.dataloader_cache_path}/final_roberta_val.pkl", config_file = args.dataloader_config)
+    test_nlq = Ego4d_NLQ(args.input_test_split, modalities=None, split="test", save_or_load_path=f"{args.dataloader_cache_path}/final_roberta_test.pkl", config_file = args.dataloader_config)
 
     train_loader = get_train_loader(train_nlq, batch_size=1)
     val_loader = get_test_loader(val_nlq, batch_size=1)
@@ -311,6 +312,20 @@ def cache_records_and_evaluate(records, epoch, n_iter, args, nlq_data, writer, t
     # print(score_str)
     return mIoU
 
+def load_model_to_finetune(model, path):
+    checkpoint = torch.load(path)
+    tempName = defaultdict()
+    for name, param in model.named_parameters():
+        _name = None
+        if name.count('model') == 2:
+            _name = name.replace('model.model.roberta', 'model')
+        if name.count('model') == 1:
+            _name = name.replace('model.', '')
+        if _name in checkpoint['model_state_dict']:
+            param.data = checkpoint['model_state_dict'][_name]
+    print(f'Pretrained weights are loaded...')
+    return model
+
 
 if __name__ == "__main__":
     fix_seed(42)
@@ -325,6 +340,9 @@ if __name__ == "__main__":
     writer = SummaryWriter()
     best_mIoU = 0
     start_epoch = 0
+
+    if args.load_path and args.preTrained:
+        model = load_model_to_finetune(model, args.load_path)
 
     if wandb.run.resumed or args.resume:
         model, optimizer, start_epoch, loss, best_mIoU = load_checkpoint(model, optimizer, args.load_path)

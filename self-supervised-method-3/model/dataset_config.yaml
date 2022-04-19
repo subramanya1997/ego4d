@@ -11,11 +11,11 @@ audio_fps: 16000
 audio_window_size: 8533
 wordEmbedding_model: roberta-large #model
 input_length: 1000
-input_frames: 240
+input_frames: 480
 input_type: multi_narration
 
 #filters
-number_of_sample: 500
+number_of_sample: None
 max_frames: None #None
 min_frames: 5
 

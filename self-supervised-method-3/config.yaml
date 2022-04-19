@@ -25,7 +25,8 @@ dataloader_type: multi_narration
 loss_type: Distance
 reduction: mean
 mask_audio: True
-mask_text: True 
+mask_text: False 
+mask_video: True
 
 
 # Video Preprocessing Parameters
@@ -33,4 +34,4 @@ input_train_split: /old/scratch/sreeragiyer_umass_edu/ego4d/samples/sample_ego4d
 input_val_split: /old/scratch/sreeragiyer_umass_edu/ego4d/samples/sample_ego4d_val.json
 input_test_split: /old/scratch/sreeragiyer_umass_edu/ego4d/samples/sample_ego4d_test.json
 audio: True
-resume: False
+resume: True

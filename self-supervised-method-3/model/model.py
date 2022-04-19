@@ -35,34 +35,34 @@ class MEME_SS_BASE(nn.Module):
             nn.Dropout(dropout),
         )
 
-        self.reorder_head = nn.Sequential(
-            nn.Linear(self.hidden_size, self.hidden_size),
-            nn.Dropout(dropout),
-            nn.Linear(in_features=self.hidden_size, out_features=self.hidden_size ,bias=True),
-        )
+        # self.reorder_head = nn.Sequential(
+        #     nn.Linear(self.hidden_size, self.hidden_size),
+        #     nn.Dropout(dropout),
+        #     nn.Linear(in_features=self.hidden_size, out_features=self.hidden_size ,bias=True),
+        # )
 
-        self.frame_prediction = nn.Sequential(
-            nn.Linear(self.hidden_size, self.hidden_size),
-            nn.Dropout(dropout),
-            nn.Linear(in_features=self.hidden_size, out_features=1, bias=True),
-            nn.Softmax(dim=0),
-        )
+        # self.frame_prediction = nn.Sequential(
+        #     nn.Linear(self.hidden_size, self.hidden_size),
+        #     nn.Dropout(dropout),
+        #     nn.Linear(in_features=self.hidden_size, out_features=1, bias=True),
+        #     nn.Softmax(dim=0),
+        # )
 
-        self.frame_number_prediction = nn.Sequential(
-            nn.Linear(self.hidden_size, self.hidden_size),
-            nn.Dropout(dropout),
-            nn.Linear(self.hidden_size, self.hidden_size*2),
-            nn.Tanh(),
-            nn.Linear(in_features=self.hidden_size*2, out_features=1, bias=True)
-        )
+        # self.frame_number_prediction = nn.Sequential(
+        #     nn.Linear(self.hidden_size, self.hidden_size),
+        #     nn.Dropout(dropout),
+        #     nn.Linear(self.hidden_size, self.hidden_size*2),
+        #     nn.Tanh(),
+        #     nn.Linear(in_features=self.hidden_size*2, out_features=1, bias=True)
+        # )
 
-    def forward(self, video, text, text_length, audio, args, modalities=None, **kwargs):
+    def forward(self, video, text, text_length, audio, query_frame_numbers, args, modalities=None, **kwargs):
         bs,l,_ = video.shape
         video = self.project_video(video)
         if Modal._Audio in modalities:
             audio = self.project_audio(audio)
         
-        input_, clsTokens, masks = self.create_model_input(video, audio, text, text_length, args, modalities)
+        input_, clsTokens, masks = self.create_model_input(video, audio, text, text_length, query_frame_numbers, args, modalities)
 
         output = self.model(inputs_embeds = input_)
 
@@ -100,7 +100,7 @@ class MEME_SS_BASE(nn.Module):
         position = torch.tensor(range(len(types))).to(self.device)
         return types, position
 
-    def create_model_input(self, video, audio, texts, text_length, args, modalities=None):
+    def create_model_input(self, video, audio, texts, text_length, query_frame_numbers, args, modalities=None):
         embedding_layer = self.model.embeddings
         types, position = self.get_token_types(video, audio, text_length+len(texts))
         special_token_embeds = embedding_layer.word_embeddings(self.special_tokens).unsqueeze(0) #[bos,sep,vid,aud,query,eos]
@@ -159,7 +159,11 @@ class MEME_SS_BASE(nn.Module):
         masks['Query'] = _text_mask_index
         masks['AudioEmbedd'] = input_embed[0][_audio_mask_index]
         masks['QueryEmbedd'] = input_embed[0][_text_mask_index]
+        masks['Video'] = query_frame_numbers + clsTokens['Video'][0] + 1
+        masks['VideoEmbedd'] = input_embed[0][masks['Video']]
         
+        if args.mask_video:
+            input_embed[0][masks['Video']] = mask
         if args.mask_audio:
             input_embed[0][masks['Audio']] = mask
         if args.mask_text:

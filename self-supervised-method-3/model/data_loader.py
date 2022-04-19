@@ -335,16 +335,18 @@ class MEMEDataLoader(Dataset):
             if record['total_feature_vector'] >= minF and record['total_feature_vector'] <= maxF:
                 tempRecords[record['video_id']].append(record)
         for _vid, data in tempRecords.items():
-            if len(self.data) >= args.number_of_sample:
-                break
+            if args.number_of_sample is not None:
+                if len(self.data) >= args.number_of_sample:
+                    break
 
             dataTemp = tempRecords[_vid][0]
             
             tempDict = defaultdict(list)
+            #TO DO: update this to sliding window instead of slices
             for d in data:
                 narr = d['NarrationData']
                 narr['NarrationFeature'] = d['NarrationFeature']
-                input_idx = narr['feature_frame_timestamp']//args.input_frames
+                input_idx = narr['feature_frame_timestamp']//args.input_frames 
                 tempDict[input_idx].append(narr)
             for i, d in tempDict.items():
                 if(len(d) == 0):
@@ -377,7 +379,7 @@ class MEMEDataLoader(Dataset):
         if args.min_frames != None:
             minF = args.min_frames
         for i, record in self.sample_query_map.items():
-            if args.number_of_sample != None:
+            if args.number_of_sample is not None:
                 if len(self.data) >= args.number_of_sample:
                     break
             if (record['total_feature_vector']-1) == record['NarrationData']['feature_frame_timestamp']:
@@ -431,7 +433,7 @@ def collate_fu_for_multiNarr(batch):
     audio_features = [torch.mean(x,dim=1) if x is not None else default_audio for x in audio_features]
     audio_features = torch.stack(audio_features)
     
-    query_frame_numbers = torch.from_numpy(np.array([ d['feature_frame_timestamp'] - start[0]  for d in data[0][:num_queries]])).to(torch.float)
+    query_frame_numbers = torch.from_numpy(np.array([ d['feature_frame_timestamp'] - start[0]  for d in data[0][:num_queries]])).to(torch.long)
 
     return _vid, video_features, audio_features, query_features[0][:num_queries], query_feat.shape[1], query_frame_numbers, data[0][:num_queries]
 
