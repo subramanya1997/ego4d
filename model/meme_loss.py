@@ -29,7 +29,6 @@ class MEME_LOSS(nn.Module):
         elif loss_type == 'pos_loss':
             output = self.pos_loss(pred, target_in_range)
         elif loss_type == 'joint_loss':
-            print("here")
             output = self.joint_loss(pred, target_in_range)
         return output
 
