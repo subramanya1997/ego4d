@@ -5,6 +5,7 @@ import torch.nn.functional as F
 from model.mlp import MLP
 from model.mlp2 import MLP2
 from model.meme_transformer import MEME_BASE
+from model.meme_multi import MEME_MULTI
 
 from utils.data_processing import Modal
 
@@ -15,6 +16,8 @@ class MEME(nn.Module):
             self.model=MLP(args)
         elif args.model=='MLP2':
             self.model=MLP2(args)
+        elif args.model=='MEME_MULTI':
+            self.model=MEME_MULTI(args)
         else:
             self.model=MEME_BASE(args)
         

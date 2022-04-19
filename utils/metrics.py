@@ -33,6 +33,25 @@ def get_best_segment(preds, topk=5):
     scores = [x[0] for x in segments[:topk]]
     return starts, ends, scores
 
+def multi_infer(pred, topk):
+    segment_scores = pred[:,0,-1]
+    
+    segment_scores = pred[:,0,-1]
+    best_segments = np.argsort(segment_scores)[::-1][:topk]
+
+    scored_segments = []
+    for i in best_segments:
+        segment = pred[i:i+1,:,-1]
+        s_, e_, scores_ = get_best_segment(segment, topk)
+        proposals = [(scores_[i], s_[i], e_[i]) for i in range(len(scores_))]
+        scored_segments+=proposals
+
+    segments = sorted(scored_segments, key=lambda x: x[0], reverse=True)
+    starts = [x[1] for x in segments[:topk]]
+    ends = [x[2] for x in segments[:topk]]
+    scores = [x[0] for x in segments[:topk]]
+    return starts, ends, scores
+
 def get_best_scoring_segment(preds, topk=5):
     '''
     preds are logits
