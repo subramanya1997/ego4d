@@ -17,7 +17,7 @@ from transformers import pipeline
 from model.meme import MEME
 from model.meme_loss import MEME_LOSS
 from model.utils import fix_seed, make_windows
-from utils.metrics import decode_candidate_clips, get_best_segment, get_best_scoring_segment, get_best_segment_improved
+from utils.metrics import decode_candidate_clips, get_best_segment, multi_infer
 from utils.evaluate_records import evaluate_predicted_records
 from utils.data_processing import Ego4d_NLQ, get_train_loader, get_test_loader, Modal
 
@@ -41,14 +41,16 @@ def parse_arguments():
     parser.add_argument("--force-cpu", help="enforce cpu computation", type=int, default=None)
     parser.add_argument("-r", "--record-path", help="path for saving records", type=str, default='output/records/')
     parser.add_argument("-p", "--prefix", help="prefix for this run", type=str, default='meme')
-    parser.add_argument("-l", "--loss-type", help="loss type to use", type=str, default='pos_loss')
+    parser.add_argument("-l", "--loss-type", help="loss type to use", type=str, default='joint_loss')
     parser.add_argument("-lr", "--learning_rate", help="learning rate", type=float, default=0.001)
     parser.add_argument("-w", "--wandb-name", \
                         help="wandb name for this run, defaults to random names by wandb",\
                         type=str, default=None)
     parser.add_argument("--model-save-path", help="path of the directory with model checkpoint", type=str, default=None)
     parser.add_argument("--load-path", help="path of the directory with model checkpoint that you want to load", type=str, default=None)
-    parser.add_argument("--loss_weight", help="loss weight", type=float, default=0.25)
+    parser.add_argument("--loss_weight", help="loss weight", type=float, default=0.39)
+    parser.add_argument("--loss_weight2", help="loss weight for balancing 2 tasks", type=float, default=0.778)
+    parser.add_argument("--clip_window", help="clip_window", type=int, default=438)
     add_bool_arg(parser, 'resume', default=False)
     add_bool_arg(parser, 'audio', default=True)
     try:
@@ -89,7 +91,7 @@ def save_checkpoint(model, optimizer, epoch, loss, mIoU, path):
             'loss': loss,
             'mIoU': mIoU
             }, path)
-    # wandb.save(path)
+    wandb.save(path)
 
 def load_checkpoint(model, optimizer, path):
     # wandb.restore(path)
@@ -138,11 +140,14 @@ def infer_from_model(pred, topk, qa_pipeline):
     # end = pred[:, 1].cpu().numpy()
     # max_len = args.max_len
     # s, e, scores = decode_candidate_clips(qa_pipeline, start, end, topk, max_len)
-    s, e, scores = get_best_segment(pred[:,:,-1].cpu().numpy(), topk)
+    # s, e, scores = get_best_segment(pred[:,:,-1].cpu().numpy(), topk)
     # pred_p = torch.nn.functional.softmax(pred, dim=-1)
     # s, e, scores = get_best_segment_improved(pred_p.cpu().numpy(), topk)
     # pred_p = torch.nn.functional.softmax(pred, dim=-1)
     # s, e, scores = get_best_scoring_segment(pred_p.cpu().numpy(), topk)
+
+    s, e, scores = multi_infer(pred.cpu().numpy(), topk)
+    
     return s, e, scores
 
 def process_model_inputs(data, args):
@@ -158,14 +163,14 @@ def process_model_inputs(data, args):
     if torch.sum(ends)==0:
         ends[-1][-1] = 1.0
 
-    # features, lens = make_windows(features,args.clip_window)
-    # audio_features, _ = make_windows(audio_features,args.clip_window)
-    # query_emb, _ = make_windows(query_emb,args.clip_window)
-    # starts, _ = make_windows(starts,args.clip_window,-100)
-    # ends, _ = make_windows(ends,args.clip_window,-100)
-    # is_ans, _ = make_windows(is_ans,args.clip_window,-100)
+    features, lens = make_windows(features,args.clip_window)
+    audio_features, _ = make_windows(audio_features,args.clip_window)
+    query_emb, _ = make_windows(query_emb,args.clip_window)
+    starts, _ = make_windows(starts,args.clip_window,-100)
+    ends, _ = make_windows(ends,args.clip_window,-100)
+    is_ans, _ = make_windows(is_ans,args.clip_window,-100)
 
-    lens = [features.shape[1]]
+    # lens = [features.shape[1]]
 
     return features, audio_features, query_emb, starts, ends, is_ans, lens
 
@@ -213,9 +218,10 @@ def train(model, dataloader, model_loss, optimizer, args, writer, epoch):
 
 def calc_precision(pred, is_ans):
     pred = pred.cpu().numpy()
+    pred = pred.reshape(1,-1,2)
     _,l,_ = pred.shape
     pred_ = np.argmax(pred,axis=2)
-    is_ans = is_ans.cpu().numpy()[:,:l]
+    is_ans = is_ans.cpu().numpy()[:,:l].reshape(1,-1)
     return np.sum(pred_*is_ans)/np.sum(pred_)
 
 def test_model(model, dataloader, model_loss, args, writer, epoch, Test = False):
@@ -237,7 +243,7 @@ def test_model(model, dataloader, model_loss, args, writer, epoch, Test = False)
 
         with torch.no_grad():
             pred = model(features, query_emb, audio_features, modalities = get_modalities(args), lengths = lens)
-            loss = model_loss(pred, starts, ends, is_ans)
+            loss = model_loss(pred, starts, ends, is_ans, loss_type = args.loss_type)
             
         # infer
         s, e, scores = infer_from_model(pred, args.topk, qa_pipeline)
@@ -302,15 +308,18 @@ def cache_records_and_evaluate(records, epoch, n_iter, args, nlq_data, writer, t
     # gt_file = args.input_val_split if not test else args.input_test_split
     gt_file = args.input_val_split if not test else args.input_test_split
     _, mIoU, score_str, metric_dict = evaluate_predicted_records(records, epoch, gt_file, nlq_data)
+    for metric, value in metric_dict.items():
+        split = "val" if not test else "test"
+        # writer.add_scalar(f"{metric}/{split}", value, epoch)
+        wandb.log({f"{split}/{metric}": value})
+        # wandb.run.summary[f"{metric}/{split}"] = value
     
-    print(score_str)
-    sys.stdout.flush()
-
+    # print(score_str)
     return mIoU
 
 
 if __name__ == "__main__":
-    # fix_seed(42)
+    fix_seed(42)
     args = parse_arguments()
     args, train_loader, val_loader, test_loader, val_nlq, test_nlq = get_dataloader(args)
     args.embedding_dim = args.video_feature_size + args.query_feature_size 
@@ -323,7 +332,8 @@ if __name__ == "__main__":
     best_mIoU = 0
     start_epoch = 0
 
-    model, optimizer, start_epoch, loss, best_mIoU = load_checkpoint(model, optimizer, "meme.pth")
+    args.load_path = '/work/shantanuagar_umass_edu/ego4d/model/nlq/fix_seed_best_sweep_1_full_last.pth'
+    model, optimizer, start_epoch, loss, best_mIoU = load_checkpoint(model, optimizer, args.load_path)
 
     epoch = 0
     val_loss, records = test_model(model, val_loader, model_loss, args, writer, epoch)
