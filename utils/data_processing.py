@@ -507,8 +507,8 @@ def train_collate_fn(batch):
     audio_features = torch.stack(audio_features)
     
     #get only CLS embedding for query
-    query_features = [torch.cat([y[:,0,:] for y in x],dim=0) for x in query_features]
-    query_features = torch.stack(query_features)
+    query_features = [x[0] for x in query_features]
+    query_features = torch.cat(query_features,axis=0)
 
     is_s = torch.stack([torch.tensor(x) for x in is_s]).to(torch.float)
     is_e = torch.stack([torch.tensor(x) for x in is_e]).to(torch.float)

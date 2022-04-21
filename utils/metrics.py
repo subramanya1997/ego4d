@@ -37,7 +37,7 @@ def multi_infer(pred, topk):
     segment_scores = pred[:,0,-1]
     
     segment_scores = pred[:,0,-1]
-    best_segments = np.argsort(segment_scores)[::-1][:topk]
+    best_segments = np.argsort(segment_scores)[::-1][:1]
 
     scored_segments = []
     for i in best_segments:

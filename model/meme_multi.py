@@ -45,7 +45,7 @@ class MEME_MULTI(nn.Module):
         video = self.project_video(video)
         if Modal._Audio in modalities:
             audio = self.project_audio(audio)
-        text = text[:,0,:].unsqueeze(dim=1)
+        # text = text[:,0,:].unsqueeze(dim=1)
         text = self.project_text(text)
         input_ = self.create_model_input(video, audio, text, lengths)
         output = self.model(inputs_embeds = input_)[0]

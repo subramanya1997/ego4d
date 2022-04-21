@@ -42,15 +42,15 @@ def parse_arguments():
     parser.add_argument("-r", "--record-path", help="path for saving records", type=str, default='output/records/')
     parser.add_argument("-p", "--prefix", help="prefix for this run", type=str, default='meme')
     parser.add_argument("-l", "--loss-type", help="loss type to use", type=str, default='joint_loss')
-    parser.add_argument("-lr", "--learning_rate", help="learning rate", type=float, default=0.001)
+    parser.add_argument("-lr", "--learning_rate", help="learning rate", type=float, default=0.0037)
     parser.add_argument("-w", "--wandb-name", \
                         help="wandb name for this run, defaults to random names by wandb",\
                         type=str, default=None)
     parser.add_argument("--model-save-path", help="path of the directory with model checkpoint", type=str, default=None)
     parser.add_argument("--load-path", help="path of the directory with model checkpoint that you want to load", type=str, default=None)
-    parser.add_argument("--loss_weight", help="loss weight", type=float, default=0.25)
-    parser.add_argument("--loss_weight2", help="loss weight for balancing 2 tasks", type=float, default=0.5)
-    parser.add_argument("--clip_window", help="clip_window", type=int, default=1000)
+    parser.add_argument("--loss_weight", help="loss weight", type=float, default=0.39)
+    parser.add_argument("--loss_weight2", help="loss weight for balancing 2 tasks", type=float, default=0.778)
+    parser.add_argument("--clip_window", help="clip_window", type=int, default=438)
     add_bool_arg(parser, 'resume', default=False)
     add_bool_arg(parser, 'audio', default=True)
     try:
@@ -165,11 +165,11 @@ def process_model_inputs(data, args):
 
     features, lens = make_windows(features,args.clip_window)
     audio_features, _ = make_windows(audio_features,args.clip_window)
-    query_emb, _ = make_windows(query_emb,args.clip_window)
+    # query_emb, _ = make_windows(query_emb,args.clip_window)
     starts, _ = make_windows(starts,args.clip_window,-100)
     ends, _ = make_windows(ends,args.clip_window,-100)
     is_ans, _ = make_windows(is_ans,args.clip_window,-100)
-
+    
     # lens = [features.shape[1]]
 
     return features, audio_features, query_emb, starts, ends, is_ans, lens
@@ -217,6 +217,7 @@ def train(model, dataloader, model_loss, optimizer, args, writer, epoch):
     return total_loss
 
 def calc_precision(pred, is_ans):
+    return 0
     pred = pred.cpu().numpy()
     pred = pred.reshape(1,-1,2)
     _,l,_ = pred.shape
