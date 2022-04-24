@@ -18,6 +18,7 @@ class MEME_MULTI(nn.Module):
 
         self.model = model
         self.tokenizer = tokenizer
+        self.classifier = nn.Linear(self.hidden_size, 2)
         self.set_special_tokens()
 
         self.project_video = nn.Sequential(
@@ -50,7 +51,7 @@ class MEME_MULTI(nn.Module):
         # text = text[:,0,:].unsqueeze(dim=1)
         text = self.project_text(text)
         input_ = self.create_model_input(video, audio, text, lengths)
-        output = self.model(inputs_embeds = input_)[0]
+        output = self.classifier(self.model(inputs_embeds = input_)[0])
 
         #output only for each video frame
         output = output[:,:l+1,:] #1st embedding for window label
@@ -90,7 +91,7 @@ class MEME_MULTI(nn.Module):
     def create_model_input(self, video, audio, text, lengths, modalities=None):
         bs = video.shape[0]
 
-        embedding_layer = self.model.roberta.embeddings
+        embedding_layer = self.model.embeddings
         types, position = self.get_token_types_and_position(video, audio, text, lengths) 
         special_token_embeds = embedding_layer.word_embeddings(self.special_tokens.to(video.device)).unsqueeze(0).repeat(bs,1,1) #[bos,sep,query,eos,pad]
         token_type_embeds = embedding_layer.token_type_embeddings(types)
