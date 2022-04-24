@@ -37,13 +37,14 @@ def multi_infer(pred, topk):
     segment_scores = pred[:,0,-1]
     
     segment_scores = pred[:,0,-1]
-    best_segments = np.argsort(segment_scores)[::-1][:1]
-
+    best_segments = np.argsort(segment_scores)[::-1][:2]
     scored_segments = []
+    _, l, _ = pred.shape
     for i in best_segments:
-        segment = pred[i:i+1,:,-1]
+        segment = pred[i:i+1,1:,-1]
         s_, e_, scores_ = get_best_segment(segment, topk)
-        proposals = [(scores_[i], s_[i], e_[i]) for i in range(len(scores_))]
+        proposals = [(scores_[i], i*(l-1) + s_[i], i*(l-1) + e_[i]) for i in range(len(scores_))]
+        # proposals = [(scores_[i], s_[i], e_[i]) for i in range(len(scores_))]
         scored_segments+=proposals
 
     segments = sorted(scored_segments, key=lambda x: x[0], reverse=True)

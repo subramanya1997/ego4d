@@ -40,7 +40,7 @@ def parse_arguments():
     parser.add_argument("--max-len", help="maximum length of answer clip", type=int, default=None)
     parser.add_argument("--force-cpu", help="enforce cpu computation", type=int, default=None)
     parser.add_argument("-r", "--record-path", help="path for saving records", type=str, default='output/records/')
-    parser.add_argument("-p", "--prefix", help="prefix for this run", type=str, default='meme')
+    parser.add_argument("-p", "--prefix", help="prefix for this run", type=str, default='joint')
     parser.add_argument("-l", "--loss-type", help="loss type to use", type=str, default='joint_loss')
     parser.add_argument("-lr", "--learning_rate", help="learning rate", type=float, default=0.0037)
     parser.add_argument("-w", "--wandb-name", \
@@ -48,9 +48,9 @@ def parse_arguments():
                         type=str, default=None)
     parser.add_argument("--model-save-path", help="path of the directory with model checkpoint", type=str, default=None)
     parser.add_argument("--load-path", help="path of the directory with model checkpoint that you want to load", type=str, default=None)
-    parser.add_argument("--loss_weight", help="loss weight", type=float, default=0.39)
-    parser.add_argument("--loss_weight2", help="loss weight for balancing 2 tasks", type=float, default=0.778)
-    parser.add_argument("--clip_window", help="clip_window", type=int, default=438)
+    parser.add_argument("--loss_weight", help="loss weight", type=float, default=0.9838)
+    parser.add_argument("--loss_weight2", help="loss weight for balancing 2 tasks", type=float, default=0.9838)
+    parser.add_argument("--clip_window", help="clip_window", type=int, default=100)
     add_bool_arg(parser, 'resume', default=False)
     add_bool_arg(parser, 'audio', default=True)
     try:
@@ -125,6 +125,7 @@ def init_model(args):
     print("Initializing model")
     model = MEME(args)
     model.to(args.device)
+    parallel_model = torch.nn.DataParallel(model)
 
     model_loss = MEME_LOSS(args)
     model_loss.to(args.device)
@@ -133,20 +134,20 @@ def init_model(args):
     #scheduler = ConstantLR(optimizer, factor=0.95,total_iters=args.num_epochs*args.num_batches)
     print("Finished initializing model")
 
-    return model, model_loss, optimizer
+    return model, model_loss, optimizer, parallel_model
 
 def infer_from_model(pred, topk, qa_pipeline):
     # start = pred[:, 0].cpu().numpy()
     # end = pred[:, 1].cpu().numpy()
     # max_len = args.max_len
     # s, e, scores = decode_candidate_clips(qa_pipeline, start, end, topk, max_len)
-    # s, e, scores = get_best_segment(pred[:,:,-1].cpu().numpy(), topk)
+    # s, e, scores = get_best_segment(pred[:,1:,-1].cpu().numpy(), topk)
     # pred_p = torch.nn.functional.softmax(pred, dim=-1)
     # s, e, scores = get_best_segment_improved(pred_p.cpu().numpy(), topk)
-    # pred_p = torch.nn.functional.softmax(pred, dim=-1)
+    pred_p = torch.nn.functional.softmax(pred, dim=-1)
     # s, e, scores = get_best_scoring_segment(pred_p.cpu().numpy(), topk)
 
-    s, e, scores = multi_infer(pred.cpu().numpy(), topk)
+    s, e, scores = multi_infer(pred_p.cpu().numpy(), topk)
     
     return s, e, scores
 
@@ -166,10 +167,11 @@ def process_model_inputs(data, args):
     features, lens = make_windows(features,args.clip_window)
     audio_features, _ = make_windows(audio_features,args.clip_window)
     # query_emb, _ = make_windows(query_emb,args.clip_window)
+    query_emb = query_emb.repeat(features.shape[0],1,1)
     starts, _ = make_windows(starts,args.clip_window,-100)
     ends, _ = make_windows(ends,args.clip_window,-100)
     is_ans, _ = make_windows(is_ans,args.clip_window,-100)
-    
+
     # lens = [features.shape[1]]
 
     return features, audio_features, query_emb, starts, ends, is_ans, lens
@@ -194,9 +196,15 @@ def train(model, dataloader, model_loss, optimizer, args, writer, epoch):
         (_, clip_id, features, audio_features, query_emb, starts, ends, is_ans, _) = data
         features, audio_features, query_emb, starts, ends, is_ans, lens = process_model_inputs(data, args)
     
-        pred = model(features, query_emb, audio_features, modalities = get_modalities(args), lengths = lens)
-        loss = model_loss(pred, starts, ends, is_ans, loss_type = args.loss_type)
+        loss_labels = {
+                'starts':starts, 
+                'ends':ends, 
+                'is_ans':is_ans,
+                'loss_type': args.loss_type}        
+        pred, loss = model(features, query_emb, audio_features, modalities = get_modalities(args), lengths = lens, loss_labels = loss_labels)
+        # loss = model_loss(pred, starts, ends, is_ans, loss_type = args.loss_type)
         optimizer.zero_grad()
+        loss = loss.mean()
         loss.backward()
         optimizer.step()
         #scheduler.step()
@@ -243,8 +251,14 @@ def test_model(model, dataloader, model_loss, args, writer, epoch, Test = False)
         features, audio_features, query_emb, starts, ends, is_ans, lens = process_model_inputs(data, args)
 
         with torch.no_grad():
-            pred = model(features, query_emb, audio_features, modalities = get_modalities(args), lengths = lens)
-            loss = model_loss(pred, starts, ends, is_ans, loss_type = args.loss_type)
+            loss_labels = {
+                'starts':starts, 
+                'ends':ends, 
+                'is_ans':is_ans,
+                'loss_type': args.loss_type}
+            pred, loss = model(features, query_emb, audio_features, modalities = get_modalities(args), lengths = lens,loss_labels=loss_labels)
+            loss = loss.mean()
+            # loss = model_loss(pred, starts, ends, is_ans, loss_type = args.loss_type)
             
         # infer
         s, e, scores = infer_from_model(pred, args.topk, qa_pipeline)
@@ -327,7 +341,7 @@ if __name__ == "__main__":
     if args.audio:
         args.embedding_dim += args.audio_feature_size
 
-    model, model_loss, optimizer = init_model(args)
+    model, model_loss, optimizer, parallel_model = init_model(args)
     initialise_wandb(args,model)
     writer = SummaryWriter()
     best_mIoU = 0
@@ -337,8 +351,8 @@ if __name__ == "__main__":
         model, optimizer, start_epoch, loss, best_mIoU = load_checkpoint(model, optimizer, args.load_path)
 
     for epoch in range(start_epoch, args.num_epochs):
-        train_loss = train(model, train_loader, model_loss, optimizer, args, writer, epoch)
-        val_loss, records = test_model(model, val_loader, model_loss, args, writer, epoch)
+        train_loss = train(parallel_model, train_loader, model_loss, optimizer, args, writer, epoch)
+        val_loss, records = test_model(parallel_model, val_loader, model_loss, args, writer, epoch)
         val_mIoU = cache_records_and_evaluate(records, epoch, epoch * len(val_loader),args, val_nlq, writer)
 
         if val_mIoU > best_mIoU:
@@ -347,6 +361,6 @@ if __name__ == "__main__":
 
         save_checkpoint(model, optimizer, epoch, val_loss, best_mIoU, args.last_model_path)
 
-        test_loss, records = test_model(model, test_loader, model_loss, args, writer, epoch, Test = True)
+        test_loss, records = test_model(parallel_model, test_loader, model_loss, args, writer, epoch, Test = True)
         print("Issue Clip IDs=",ISSUE_CIDS)
         val_mIoU = cache_records_and_evaluate(records, epoch, epoch * len(test_loader), args, test_nlq, writer, test=True)

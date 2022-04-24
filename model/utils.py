@@ -11,7 +11,7 @@ QUERY_TOKEN = "<query>"
 EOS_TOKEN = "<eos>"
 
 def init_custom_model(folder_path="output/models/model1", model_name= "meme"):
-    my_config = RobertaConfig(num_hidden_layers=2, max_position_embeddings=2048,type_vocab_size=6)
+    my_config = RobertaConfig(num_hidden_layers=4, max_position_embeddings=512,type_vocab_size=6)
     my_config.save_pretrained(save_directory=folder_path)
     my_config = RobertaConfig.from_pretrained(f"{folder_path}/config.json")
 
@@ -57,7 +57,8 @@ def make_windows(x, window_size,pad_value=0.):
 
 def label_windows(is_ans):
     # is_ans.shape = (batch_size, window_size)
-    _, w_s = is_ans.shape
-    has_ans = is_ans.sum(dim=1)
+    mask = is_ans!=-100
+    masked = is_ans * mask.to(torch.int)
+    has_ans = masked.sum(dim=1)
     labels = has_ans > 0
     return labels

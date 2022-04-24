@@ -4,6 +4,7 @@ import torch.nn.functional as F
 
 from model.utils import init_custom_model, QUERY_TOKEN, EOS_TOKEN
 from utils.data_processing import Modal
+from model.meme_loss import MEME_LOSS
 
 class MEME_MULTI(nn.Module):
     def __init__(self, args):
@@ -13,6 +14,7 @@ class MEME_MULTI(nn.Module):
         dropout = model.config.hidden_dropout_prob
         self.max_len = model.config.max_position_embeddings
         self.device = args.device
+        self.loss_fn = MEME_LOSS(args)
 
         self.model = model
         self.tokenizer = tokenizer
@@ -34,7 +36,7 @@ class MEME_MULTI(nn.Module):
             nn.Dropout(dropout),
         )
         
-    def forward(self, video, text, audio, modalities=None, lengths = None, **kwargs):
+    def forward(self, video, text, audio, modalities=None, lengths = None, loss_labels=None, **kwargs):
         ## TRIM INPUT
         if video.shape[1]*2+5>self.max_len:
             win_size = int((self.max_len - 5)/2) - 1
@@ -52,7 +54,12 @@ class MEME_MULTI(nn.Module):
 
         #output only for each video frame
         output = output[:,:l+1,:] #1st embedding for window label
-        return output
+
+        loss = self.loss_fn(output, loss_labels['starts'], loss_labels['ends'], loss_labels['is_ans'], loss_type = loss_labels['loss_type'])
+        return output, loss
+
+    def loss(self, pred, starts, ends, is_ans, loss_type = 'joint_loss'):
+        return self.loss_fn(pred, starts, ends, is_ans, loss_type = loss_type)
 
     def set_special_tokens(self):
         bos = self.tokenizer.bos_token_id
@@ -64,15 +71,17 @@ class MEME_MULTI(nn.Module):
 
     def get_token_types_and_position(self, video, audio, text, lengths):
         v, a, t = video.shape[1], audio.shape[1], text.shape[1]
-        types_ = [0]*(v+1)+[1]*(a+1)+[2]*(t+1)+[2] #<bos>,<sep>video,<sep>audio,<query>query,<eos>
-        position = torch.tensor(range(len(types_))).to(self.device).repeat(video.shape[0],1)
-        types = torch.tensor(types_).to(self.device).repeat(video.shape[0],1)
+        # types_ = [0]*(v+1)+[1]*(a+1)+[2]*(t+1)+[2] #<bos>,<sep>video,<sep>audio,<query>query,<eos>
+        types_ = [0]*(t+1)+[1]*(v+1)+[2]*(a+1)+[2] #<bos>,<sep>video,<sep>audio,<query>query,<eos>
+        position = torch.tensor(range(len(types_))).to(video.device).repeat(video.shape[0],1)
+        types = torch.tensor(types_).to(video.device).repeat(video.shape[0],1)
 
         l_last = lengths[-1]
         types_last = [2]*types.shape[1]
-        types_last_ = [0]*(l_last+1)+[1]*(l_last+1)+[2]*(t+1)+[2] #<bos>,<sep>video,<sep>audio,<query>query,<eos>
+        # types_last_ = [0]*(l_last+1)+[1]*(l_last+1)+[2]*(t+1)+[2] #<bos>,<sep>video,<sep>audio,<query>query,<eos>
+        types_last_ = [0]*(t+1)+[1]*(l_last+1)+[2]*(l_last+1)+[2] #<bos>,<sep>video,<sep>audio,<query>query,<eos>
         types_last[:len(types_last_)] = types_last_
-        types_last = torch.tensor(types_last).to(self.device).unsqueeze(0)
+        types_last = torch.tensor(types_last).to(video.device).unsqueeze(0)
         types[-1] = types_last
         #fix types of the last one
 
@@ -83,7 +92,7 @@ class MEME_MULTI(nn.Module):
 
         embedding_layer = self.model.roberta.embeddings
         types, position = self.get_token_types_and_position(video, audio, text, lengths) 
-        special_token_embeds = embedding_layer.word_embeddings(self.special_tokens).unsqueeze(0).repeat(bs,1,1) #[bos,sep,query,eos,pad]
+        special_token_embeds = embedding_layer.word_embeddings(self.special_tokens.to(video.device)).unsqueeze(0).repeat(bs,1,1) #[bos,sep,query,eos,pad]
         token_type_embeds = embedding_layer.token_type_embeddings(types)
         position_embeds = embedding_layer.position_embeddings(position)
 
@@ -95,8 +104,10 @@ class MEME_MULTI(nn.Module):
 
         # make same batch size
         
-        input_embed_a = torch.cat([bos[:-1],video[:-1],sep[:-1],audio[:-1],query[:-1],text[:-1],eos[:-1]],dim=1)
-        input_embed_b = torch.cat([bos[-1:],video[-1:,:lengths[-1]],sep[-1:],audio[-1:,:lengths[-1]],query[-1:],text[-1:],eos[-1:]],dim=1)
+        # input_embed_a = torch.cat([bos[:-1],video[:-1],sep[:-1],audio[:-1],query[:-1],text[:-1],eos[:-1]],dim=1)
+        # input_embed_b = torch.cat([bos[-1:],video[-1:,:lengths[-1]],sep[-1:],audio[-1:,:lengths[-1]],query[-1:],text[-1:],eos[-1:]],dim=1)
+        input_embed_a = torch.cat([bos[:-1],text[:-1],sep[:-1],video[:-1],sep[:-1],audio[:-1],eos[:-1]],dim=1)
+        input_embed_b = torch.cat([bos[-1:],text[-1:],sep[-1:],video[-1:,:lengths[-1]],sep[-1:],audio[-1:,:lengths[-1]],eos[-1:]],dim=1)
         # pad input_embed_b to input_embed_a shape
         pad_length = input_embed_a.shape[1]-input_embed_b.shape[1]
         padding = pad.repeat(1,pad_length,1)

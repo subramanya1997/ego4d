@@ -8,11 +8,11 @@ video_fps: 30
 video_window_size: 16
 audio_fps: 16000
 audio_window_size: 8533
-wordEmbedding_model: roberta-base #model
+wordEmbedding_model: roberta-large #model
 
 #filters
 number_of_sample: None
-max_frames: 750 #None
+max_frames: 50 #None
 min_frames: 5
 
 #load and save
