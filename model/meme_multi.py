@@ -95,21 +95,21 @@ class MEME_MULTI(nn.Module):
         types[-1] = types_last
         #fix types of the last one
 
-        # pos_t = torch.tensor(range(t+1)).repeat(len(lengths),1)
-        # pos = torch.tensor(range(t+1,t+1+(lengths[0]+1)*len(lengths)))
-        # pos_v = pos.reshape(-1, lengths[0]+1)
-        # pos_a = pos_v.clone()
-        # eos_pos = torch.tensor(range(t+1+(lengths[0]+1),t+1+(lengths[0]+1)*len(lengths)+1,lengths[0]+1))
-        # eos_pos = eos_pos.unsqueeze(-1)
+        pos_t = torch.tensor(range(t+1)).repeat(len(lengths),1)
+        pos = torch.tensor(range(t+1,t+1+(lengths[0]+1)*len(lengths)))
+        pos_v = pos.reshape(-1, lengths[0]+1)
+        pos_a = pos_v.clone()
+        eos_pos = torch.tensor(range(t+1+(lengths[0]+1),t+1+(lengths[0]+1)*len(lengths)+1,lengths[0]+1))
+        eos_pos = eos_pos.unsqueeze(-1)
 
         # print(t,v,a,lengths,pos_t.shape,pos_v.shape,eos_pos.shape)
-        # pos = torch.cat([pos_t, pos_v, pos_a, eos_pos], dim=1)
-        # pos[-1][t+1+lengths[-1]+1:t+1+(lengths[-1]+1)*2] = pos_a[-1][:(lengths[-1]+1)]
-        # pos[-1][t+1+(lengths[-1]+1)*2:] = torch.tensor(range(pos_a[-1][(lengths[-1]+1)],\
-        #     pos.shape[-1]-(t+1+(lengths[-1]+1)*2)+pos_a[-1][(lengths[-1]+1)]))
-        # pos = torch.clamp_max(pos, self.max_len-1)
-        # pos = pos.to(video.device)
-        return types, position
+        pos = torch.cat([pos_t, pos_v, pos_a, eos_pos], dim=1)
+        pos[-1][t+1+lengths[-1]+1:t+1+(lengths[-1]+1)*2] = pos_a[-1][:(lengths[-1]+1)]
+        pos[-1][t+1+(lengths[-1]+1)*2:] = torch.tensor(range(pos_a[-1][(lengths[-1])]+1,\
+            pos.shape[-1]-(t+1+(lengths[-1]+1)*2)+pos_a[-1][(lengths[-1])]+1))
+        pos = torch.clamp_max(pos, self.max_len-1)
+        pos = pos.to(video.device)
+        return types, pos
 
     def create_model_input(self, video, audio, text, lengths, modalities=None):
         bs = video.shape[0]
