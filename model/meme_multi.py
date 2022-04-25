@@ -57,11 +57,16 @@ class MEME_MULTI(nn.Module):
         qa_output = self.qa_classifier(roberta_output)
 
         #output only for each video frame
-        output = output[:,:l+1,:] #1st embedding for window label
+        t = text.shape[1]
+        offest = t+1
+        output = output[:,offest:offest+l+1,:] #1st embedding for window label
+        qa_output = qa_output[:,offest:offest+l+1,:]
 
         loss = self.loss_fn(output, loss_labels['starts'], loss_labels['ends'], loss_labels['is_ans'], loss_type = loss_labels['loss_type'])
-        qa_loss = self.loss_fn(qa_output[:,1:l+1,:], loss_labels['starts'], loss_labels['ends'], loss_labels['is_ans'], loss_type = 'hard_qa')
-        return output, loss + qa_loss
+        qa_loss = self.loss_fn(qa_output[:,1:], loss_labels['starts'], loss_labels['ends'], loss_labels['is_ans'], loss_type = 'hard_qa',lens = lengths)
+
+        final_output = torch.cat([output, qa_output], dim=-1)
+        return final_output, loss + qa_loss
 
     def loss(self, pred, starts, ends, is_ans, loss_type = 'joint_loss'):
         return self.loss_fn(pred, starts, ends, is_ans, loss_type = loss_type)
@@ -90,6 +95,20 @@ class MEME_MULTI(nn.Module):
         types[-1] = types_last
         #fix types of the last one
 
+        # pos_t = torch.tensor(range(t+1)).repeat(len(lengths),1)
+        # pos = torch.tensor(range(t+1,t+1+(lengths[0]+1)*len(lengths)))
+        # pos_v = pos.reshape(-1, lengths[0]+1)
+        # pos_a = pos_v.clone()
+        # eos_pos = torch.tensor(range(t+1+(lengths[0]+1),t+1+(lengths[0]+1)*len(lengths)+1,lengths[0]+1))
+        # eos_pos = eos_pos.unsqueeze(-1)
+
+        # print(t,v,a,lengths,pos_t.shape,pos_v.shape,eos_pos.shape)
+        # pos = torch.cat([pos_t, pos_v, pos_a, eos_pos], dim=1)
+        # pos[-1][t+1+lengths[-1]+1:t+1+(lengths[-1]+1)*2] = pos_a[-1][:(lengths[-1]+1)]
+        # pos[-1][t+1+(lengths[-1]+1)*2:] = torch.tensor(range(pos_a[-1][(lengths[-1]+1)],\
+        #     pos.shape[-1]-(t+1+(lengths[-1]+1)*2)+pos_a[-1][(lengths[-1]+1)]))
+        # pos = torch.clamp_max(pos, self.max_len-1)
+        # pos = pos.to(video.device)
         return types, position
 
     def create_model_input(self, video, audio, text, lengths, modalities=None):

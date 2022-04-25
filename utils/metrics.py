@@ -3,8 +3,23 @@ import numpy as np
 def decode_candidate_clips(qa_pipeline, start, end, topk = 5, max_len = None):
     mask = np.ones(start.shape[0])
     max_len = start.shape[0] if max_len is None else max_len
-    s, e, scores = qa_pipeline.decode(start, end,topk=topk,max_answer_len=max_len, undesired_tokens=mask)
+    s, e, scores = qa_pipeline.decode(start, end,topk=topk, max_answer_len=max_len, undesired_tokens=mask)
     return s, e, scores
+
+def classification_metrics(y_pred,y_true):
+    '''
+    y_pred: (batch_size, num_classes)
+    y_true: (batch_size, num_classes)
+    '''
+    y_pred = np.array(y_pred)
+    y_true = np.array(y_true)
+    t = np.sum(y_true[y_pred.astype(bool)])
+    recall = t/np.sum(y_true)
+    precision = t/np.sum(y_pred)
+    f1 = 2*recall*precision/(recall+precision)
+    class_metrics = {'recall':recall, 'precision':precision, 'f1':f1}
+    return class_metrics
+
 
 def get_best_segment(preds, topk=5):
     # find longest sequence with max log sum score

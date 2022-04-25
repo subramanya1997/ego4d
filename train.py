@@ -17,7 +17,7 @@ from transformers import pipeline
 from model.meme import MEME
 from model.meme_loss import MEME_LOSS
 from model.utils import fix_seed, make_windows
-from utils.metrics import decode_candidate_clips, get_best_segment, multi_infer
+from utils.metrics import decode_candidate_clips, get_best_segment, multi_infer, classification_metrics
 from utils.evaluate_records import evaluate_predicted_records
 from utils.data_processing import Ego4d_NLQ, get_train_loader, get_test_loader, Modal
 
@@ -50,7 +50,8 @@ def parse_arguments():
     parser.add_argument("--load-path", help="path of the directory with model checkpoint that you want to load", type=str, default=None)
     parser.add_argument("--loss_weight", help="loss weight", type=float, default=0.9838)
     parser.add_argument("--loss_weight2", help="loss weight for balancing 2 tasks", type=float, default=0.9838)
-    parser.add_argument("--clip_window", help="clip_window", type=int, default=100)
+    parser.add_argument("--clip_window", help="clip_window", type=int, default=None)
+    parser.add_argument("--num_epochs", help="epochs", type=int, default=None)
     add_bool_arg(parser, 'resume', default=False)
     add_bool_arg(parser, 'audio', default=True)
     try:
@@ -136,18 +137,22 @@ def init_model(args):
 
     return model, model_loss, optimizer, parallel_model
 
-def infer_from_model(pred, topk, qa_pipeline):
+def infer_from_model(pred, topk, qa_pipeline, lens = None):
     # start = pred[:, 0].cpu().numpy()
     # end = pred[:, 1].cpu().numpy()
     # max_len = args.max_len
-    # s, e, scores = decode_candidate_clips(qa_pipeline, start, end, topk, max_len)
+    b,l,c = pred.shape
+    pred_ = pred[:,1:].reshape(-1,c)
+    pred_ = pred_[:lens,:]
+    pred_p = torch.nn.functional.softmax(pred_, dim=0).cpu().numpy()
+    s, e, scores = decode_candidate_clips(qa_pipeline, pred_p[:,2], pred_p[:,3], topk, 50)
     # s, e, scores = get_best_segment(pred[:,1:,-1].cpu().numpy(), topk)
     # pred_p = torch.nn.functional.softmax(pred, dim=-1)
     # s, e, scores = get_best_segment_improved(pred_p.cpu().numpy(), topk)
-    pred_p = torch.nn.functional.softmax(pred, dim=-1)
+    # pred_p = torch.nn.functional.softmax(pred, dim=-1)
     # s, e, scores = get_best_scoring_segment(pred_p.cpu().numpy(), topk)
 
-    s, e, scores = multi_infer(pred_p.cpu().numpy(), topk)
+    # s, e, scores = multi_infer(pred.cpu().numpy(), topk)
     
     return s, e, scores
 
@@ -227,18 +232,15 @@ def train(model, dataloader, model_loss, optimizer, args, writer, epoch):
         ISSUE_CIDS['train'] = issue_cids
     return total_loss
 
-def calc_precision(pred, is_ans):
-    return 0
-    pred = pred.cpu().numpy()
-    pred = pred.reshape(1,-1,2)
-    _,l,_ = pred.shape
-    pred_ = np.argmax(pred,axis=2)
-    is_ans = is_ans.cpu().numpy()[:,:l].reshape(1,-1)
-    return np.sum(pred_*is_ans)/np.sum(pred_)
+def process_pred(pred):
+    pred_ = torch.nn.functional.softmax(pred[:,:,:2], dim=-1)
+    pred_ = pred_[:,:,1] > 0.5
+    pred_ = pred_.to(torch.float32) 
+    return pred_
 
 def test_model(model, dataloader, model_loss, args, writer, epoch, Test = False):
     model.eval()
-    qa_pipeline = None # pipeline("question-answering")
+    qa_pipeline = pipeline("question-answering")
     tqdm_obj = tqdm(
                 dataloader,
                 total=len(dataloader),
@@ -247,7 +249,8 @@ def test_model(model, dataloader, model_loss, args, writer, epoch, Test = False)
     iter = 0
     total_loss = 0
     records = []
-    precision = []
+    pred_ = []
+    gt_ = []
     for i, data in enumerate(tqdm_obj):
         (sample_id, clip_id, features, audio_features, query_emb, starts, ends, is_ans, _) = data
         _, len_vid, _ = features.shape
@@ -264,12 +267,13 @@ def test_model(model, dataloader, model_loss, args, writer, epoch, Test = False)
             # loss = model_loss(pred, starts, ends, is_ans, loss_type = args.loss_type)
             
         # infer
-        s, e, scores = infer_from_model(pred, args.topk, qa_pipeline)
+        s, e, scores = infer_from_model(pred, args.topk, qa_pipeline, lens = sum(lens))
         if s==[]:
             s, e = [0], [len_vid-1]
         # print(sample_id, clip_id, torch.sum(ends))
         end_idx = ends.shape[-1]-1 if torch.sum(ends) == 0 else np.where(ends.cpu().numpy() == 1)[-1][0]
-        precision.append(calc_precision(pred, is_ans))
+        pred_ += process_pred(pred).cpu().numpy().reshape(-1)[:sum(lens)].tolist()
+        gt_ += is_ans.cpu().numpy().reshape(-1)[:sum(lens)].tolist()
         records.append({"sample_id": int(sample_id[0]), 
                         "clip_id": str(clip_id[0]),
                         "start": list([int(x) for x in s]), 
@@ -291,9 +295,10 @@ def test_model(model, dataloader, model_loss, args, writer, epoch, Test = False)
         # end val loop
     split = "Test" if Test else "Val"
     wandb.log({f"loss/{split}": total_loss})
-    mean_avg_p = np.mean(precision)
+    c_metrics = classification_metrics(pred_, gt_)
     split = "test" if Test else "val"
-    wandb.log({f"{split}/MAP": mean_avg_p})
+    for k,v in c_metrics.items():
+        wandb.log({f"{split}/{k}": v})
 
     return total_loss, records
 
@@ -352,6 +357,7 @@ if __name__ == "__main__":
 
     if wandb.run.resumed or args.resume:
         model, optimizer, start_epoch, loss, best_mIoU = load_checkpoint(model, optimizer, args.load_path)
+        print(f"Loaded checkpoint from {args.load_path} from epoch {start_epoch} with loss {loss}")
 
     for epoch in range(start_epoch, args.num_epochs):
         train_loss = train(parallel_model, train_loader, model_loss, optimizer, args, writer, epoch)

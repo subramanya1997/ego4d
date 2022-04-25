@@ -21,9 +21,9 @@ class MEME_LOSS(nn.Module):
         self.ce_loss = nn.CrossEntropyLoss(weight = self.loss_weight,ignore_index=-100)
         
         
-    def forward(self, pred, target_start, target_end, target_in_range, loss_type='pos_loss'):
+    def forward(self, pred, target_start, target_end, target_in_range, loss_type='pos_loss', lens=None):
         if loss_type == 'hard_qa':
-            output = self.qa_loss(pred, target_start, target_end)
+            output = self.qa_loss(pred, target_start, target_end, lens)
         elif loss_type == 'soft_qa':
             output = self.qa_soft_loss(pred, target_start, target_end, target_in_range)
         elif loss_type == 'pos_loss':
@@ -60,17 +60,20 @@ class MEME_LOSS(nn.Module):
             loss = self.ce_loss(pred.reshape(bs*l,-1),target_in_range[:,:l].reshape(-1).to(torch.long))
         return loss
 
-    def qa_loss(self, pred, target_start, target_end):
+    def qa_loss(self, pred, target_start, target_end, lens):
         """
         Compute the EM loss for joint prediction.
         pred: (batch_size, seq_len, 2)
         target_start: (batch_size,seq_len)
         target_end: (batch_size,seq_len)
         """
+        lens = sum(lens)
         start = torch.where(target_start.reshape(-1)==1)[0]
         end = torch.where(target_end.reshape(-1)==1)[0]
-        start_loss = self.ce_loss_fn(pred[:,:,0].reshape(1,-1), start)
-        end_loss = self.ce_loss_fn(pred[:,:, 1].reshape(1,-1), end)
+        start_logits = pred[:,:,0].reshape(1,-1)[:,:lens]
+        end_logits = pred[:,:,1].reshape(1,-1)[:,:lens]
+        start_loss = self.ce_loss_fn(start_logits, start)
+        end_loss = self.ce_loss_fn(end_logits, end)
         loss = (start_loss + end_loss) / 2
         return loss
 
