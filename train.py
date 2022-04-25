@@ -152,8 +152,11 @@ def infer_from_model(pred, topk, qa_pipeline):
     return s, e, scores
 
 def process_model_inputs(data, args):
-    (_, clip_id, features, audio_features, query_emb, starts, ends, is_ans, _) = data
+    (_, clip_id, features, audio_features, query_emb, starts, ends, is_ans, info) = data
     # process_modality_features
+    # starts = torch.tensor([x['start_frame_idx'] for x in info])
+    # ends = torch.tensor([x['end_frame_idx'] for x in info])
+
     features = features.to(args.device)
     audio_features = audio_features.to(args.device)
     query_emb = query_emb.to(args.device)

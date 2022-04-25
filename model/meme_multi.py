@@ -19,6 +19,7 @@ class MEME_MULTI(nn.Module):
         self.model = model
         self.tokenizer = tokenizer
         self.classifier = nn.Linear(self.hidden_size, 2)
+        self.qa_classifier = nn.Linear(self.hidden_size, 2)
         self.set_special_tokens()
 
         self.project_video = nn.Sequential(
@@ -51,13 +52,16 @@ class MEME_MULTI(nn.Module):
         # text = text[:,0,:].unsqueeze(dim=1)
         text = self.project_text(text)
         input_ = self.create_model_input(video, audio, text, lengths)
-        output = self.classifier(self.model(inputs_embeds = input_)[0])
+        roberta_output = self.model(inputs_embeds = input_)[0]
+        output = self.classifier(roberta_output)
+        qa_output = self.qa_classifier(roberta_output)
 
         #output only for each video frame
         output = output[:,:l+1,:] #1st embedding for window label
 
         loss = self.loss_fn(output, loss_labels['starts'], loss_labels['ends'], loss_labels['is_ans'], loss_type = loss_labels['loss_type'])
-        return output, loss
+        qa_loss = self.loss_fn(qa_output[:,1:l+1,:], loss_labels['starts'], loss_labels['ends'], loss_labels['is_ans'], loss_type = 'hard_qa')
+        return output, loss + qa_loss
 
     def loss(self, pred, starts, ends, is_ans, loss_type = 'joint_loss'):
         return self.loss_fn(pred, starts, ends, is_ans, loss_type = loss_type)

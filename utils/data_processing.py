@@ -218,6 +218,8 @@ class Ego4d_NLQ(Dataset):
                 "Audio Feature Size": self.audio_feature_size,
                 "Query Feature Size": self.query_feature_size,
                 "Frame length": frame_length,
+                "start_frame_idx": sample_query['s_video_frame'],
+                "end_frame_idx": sample_query['e_video_frame'],
                 # "default_audio": self.default_audio
                 }
         
