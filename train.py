@@ -50,6 +50,7 @@ def parse_arguments():
     parser.add_argument("--load-path", help="path of the directory with model checkpoint that you want to load", type=str, default=None)
     parser.add_argument("--loss_weight", help="loss weight", type=float, default=0.9838)
     parser.add_argument("--loss_weight2", help="loss weight for balancing 2 tasks", type=float, default=0.9838)
+    parser.add_argument("--loss_weight3", help="loss weight for balancing 2 tasks", type=float, default=0.5)
     parser.add_argument("--clip_window", help="clip_window", type=int, default=None)
     parser.add_argument("--num_epochs", help="epochs", type=int, default=None)
     add_bool_arg(parser, 'resume', default=False)

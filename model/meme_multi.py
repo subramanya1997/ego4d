@@ -15,6 +15,7 @@ class MEME_MULTI(nn.Module):
         self.max_len = model.config.max_position_embeddings
         self.device = args.device
         self.loss_fn = MEME_LOSS(args)
+        self.loss_wt = args.loss_weight3 if hasattr(args, 'loss_weight3') else 0.5
 
         self.model = model
         self.tokenizer = tokenizer
@@ -66,7 +67,8 @@ class MEME_MULTI(nn.Module):
         qa_loss = self.loss_fn(qa_output[:,1:], loss_labels['starts'], loss_labels['ends'], loss_labels['is_ans'], loss_type = 'hard_qa',lens = lengths)
 
         final_output = torch.cat([output, qa_output], dim=-1)
-        return final_output, loss + qa_loss
+        final_loss = self.loss_wt*loss + (1-self.loss_wt)*qa_loss
+        return final_output, final_loss
 
     def loss(self, pred, starts, ends, is_ans, loss_type = 'joint_loss'):
         return self.loss_fn(pred, starts, ends, is_ans, loss_type = loss_type)
@@ -96,10 +98,10 @@ class MEME_MULTI(nn.Module):
         #fix types of the last one
 
         pos_t = torch.tensor(range(t+1)).repeat(len(lengths),1)
-        pos = torch.tensor(range(t+1,t+1+(lengths[0]+1)*len(lengths)))
-        pos_v = pos.reshape(-1, lengths[0]+1)
+        pos = torch.tensor(range(t+1,t+1+(v+1)*len(lengths)))
+        pos_v = pos.reshape(-1, v+1)
         pos_a = pos_v.clone()
-        eos_pos = torch.tensor(range(t+1+(lengths[0]+1),t+1+(lengths[0]+1)*len(lengths)+1,lengths[0]+1))
+        eos_pos = torch.tensor(range(t+1+(v+1),t+1+(v+1)*len(lengths)+1,v+1))
         eos_pos = eos_pos.unsqueeze(-1)
 
         # print(t,v,a,lengths,pos_t.shape,pos_v.shape,eos_pos.shape)
