@@ -10,7 +10,7 @@ def get_task_video_ids(file_ = "data/annotations/nlq_train.json"):
     video_ids = [x['video_uid'] for x in data['videos']]
     return video_ids
 
-def get_filtered_video_metadata(video_ids, main_file = "/scratch/shantanuagar_umass_edu/ego4d/ego4d.json"):
+def get_filtered_video_metadata(video_ids, main_file = "/work/sreeragiyer_umass_edu/ego4d_data/ego4d.json"):
     with open(main_file) as f:
         main_data = json.load(f)
     em_vids = {x['video_uid']:x for x in main_data['videos'] if x['video_uid'] in video_ids}
@@ -108,9 +108,9 @@ def save_sample_data(dict_list, main_file, save_file_ = "./data/annotations/samp
         json.dump(main_data,f,indent=4)
 
 if __name__ == "__main__":
-    file_ = "data/annotations/nlq_train.json"
-    audio_path = "/scratch/snagabhushan_umass_edu/dataset/v1/audio/"
-    save_file_ = "./data/annotations/sample/sample_nlq_val.json"
+    file_ = "/work/sreeragiyer_umass_edu/ego4d_data/v1/annotations/vq_train.json"
+    audio_path = "/work/snagabhushan_umass_edu/dataset/v1/audio/"
+    save_file_ = "/work/sreeragiyer_umass_edu/ego4d_data/v1/samples/sample_vq_train.json"
     test_file = None
     # test_file = "./data/annotations/sample/sample_nlq_test.json"
     sample_percent = 0.1
