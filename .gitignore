@@ -129,3 +129,4 @@ sbatch/
 
 # VS Code debugger
 .vscode
+testing.py
