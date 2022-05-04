@@ -129,6 +129,61 @@ def evaluate_nlq_performance(
     else:
         return mean_results, mIoU
 
+def evaluate_mq_performance(
+    predictions, ground_truth, thresholds, topK, per_instance=False
+):
+    """Evalutes the performances."""
+    gt_dict = {}
+    num_gt_queries = 0
+
+    for video_datum in ground_truth["videos"]:
+        for clip_datum in video_datum["clips"]:
+            clip_uid = clip_datum["clip_uid"]
+            for ann_datum in clip_datum["annotations"]:
+                key = (clip_uid, ann_datum["annotator_uid"])
+                gt_dict[key] = ann_datum
+                num_gt_queries += len(ann_datum["labels"])
+
+    results = [[[] for _ in topK] for _ in thresholds]
+    average_IoU = []
+    num_instances = 0
+    
+    for pred_datum in predictions:
+        # print(pred_datum)
+        key = (pred_datum["clip_uid"], pred_datum["annotation_uid"])
+        assert key in gt_dict, "Instance not present!"
+        query_id = pred_datum["query_idx"]
+        gt_datum = gt_dict[key]
+        gt_query_datum = gt_datum["labels"][query_id]
+
+        # Assert the descriptions are similar (optional).
+        # gt_query_str = gt_query_datum["query"].strip(" ").strip("\n")
+        # pred_query_str = pred_datum["query"].strip(" ").strip("\n")
+        # assert (gt_query_str == pred_query_str), "Queries don't match!"
+
+        # Compute overlap and recalls.
+        overlap = compute_IoU(
+            pred_datum["predicted_times"],
+            [[gt_query_datum["start_time"], gt_query_datum["end_time"]]],
+        )
+        average_IoU.append(np.mean(np.sort(overlap[0])[-3:]))
+        for tt, threshold in enumerate(thresholds):
+            for rr, KK in enumerate(topK):
+                results[tt][rr].append((overlap > threshold)[:KK].any())
+        num_instances += 1
+
+    mean_results = np.array(results).mean(axis=-1)
+    mIoU = np.mean(average_IoU)
+    print(f"Evaluated: {num_instances} / {num_gt_queries} instances")
+    if per_instance:
+        per_instance_results = {
+            "overlap": overlap,
+            "average_IoU": average_IoU,
+            "results": results,
+        }
+        return mean_results, mIoU, per_instance_results
+    else:
+        return mean_results, mIoU
 
 def main(args):
     print(f"""Reading predictions: {args["model_prediction_json"]}""")
