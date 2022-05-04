@@ -1,0 +1,37 @@
+# Model Params
+## Hyperparams
+hidden_size: 1024
+num_epochs: 10
+learning_rate: 0.001
+batch_size: 1
+topk: 5 
+model: MLP2_transformer
+clip_window: 1000
+dropout: 0.1
+
+## others
+force_cpu: false
+log_interval: 100
+boundary_smoothing: 9 #smooth over 10 features # not needed anymore
+randomize: False
+wandb_name: mask
+
+## data stuff
+update_dataloader: False
+dataloader_cache_path: /work/snagabhushan_umass_edu/dataset/v1/save/
+dataloader_config: ./model/dataset_config.yaml
+model_save_path: /work/snagabhushan_umass_edu/ego4d_project/save/model/
+dataloader_type: multi_narration
+loss_type: Distance
+reduction: mean
+mask_audio: True
+mask_text: False 
+mask_video: True
+
+
+# Video Preprocessing Parameters
+input_train_split: /old/scratch/sreeragiyer_umass_edu/ego4d/samples/sample_ego4d_train.json
+input_val_split: /old/scratch/sreeragiyer_umass_edu/ego4d/samples/sample_ego4d_val.json
+input_test_split: /old/scratch/sreeragiyer_umass_edu/ego4d/samples/sample_ego4d_test.json
+audio: True
+resume: True

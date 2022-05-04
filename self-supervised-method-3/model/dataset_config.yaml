@@ -1,0 +1,25 @@
+#paths
+video_features_path: /work/shantanuagar_umass_edu/ego4d/v1/slowfast8x8_r101_k400/
+audio_features_path: /work/snagabhushan_umass_edu/dataset/v1/audio_features_from_video/
+narrations_path: /work/snagabhushan_umass_edu/dataset/v1/annotations/narration.json
+save_or_load_path: /work/snagabhushan_umass_edu/dataset/v1/save/self_supervised/
+
+#constants
+video_fps: 30
+video_window_size: 16
+audio_fps: 16000
+audio_window_size: 8533
+wordEmbedding_model: roberta-large #model
+input_length: 1000
+input_frames: 480
+input_type: multi_narration
+
+#filters
+number_of_sample: None
+max_frames: None #None
+min_frames: 5
+
+#load and save
+save_or_load: True
+update: False
+wandb-name: narration_matching 

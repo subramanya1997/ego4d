@@ -1,4 +1,3 @@
-from black import out
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -35,7 +34,7 @@ class MEME_BASE(nn.Module):
             nn.Dropout(dropout),
         )
         
-    def forward(self, video, text, audio, modalities=None, **kwargs):
+    def forward(self, video, text, audio, modalities=None, lengths = None, **kwargs):
         ## TRIM INPUT
         if video.shape[1]*2+5>self.max_len:
             win_size = int((self.max_len - 5)/2) - 1
@@ -48,7 +47,7 @@ class MEME_BASE(nn.Module):
             audio = self.project_audio(audio)
         text = text[:,0,:].unsqueeze(dim=1)
         text = self.project_text(text)
-        input_ = self.create_model_input(video, audio, text)
+        input_ = self.create_model_input(video, audio, text, lengths)
         output = self.model(inputs_embeds = input_)[0]
 
         #output only for each video frame
@@ -60,30 +59,50 @@ class MEME_BASE(nn.Module):
         sep = self.tokenizer.sep_token_id
         eos = self.tokenizer.vocab[EOS_TOKEN]
         query = self.tokenizer.vocab[QUERY_TOKEN]
-        self.special_tokens = torch.tensor([bos,sep,query,eos]).to(self.device)
+        pad = self.tokenizer.pad_token_id
+        self.special_tokens = torch.tensor([bos,sep,query,eos,pad]).to(self.device)
 
-    def get_token_types_and_position(self, video, audio, text):
+    def get_token_types_and_position(self, video, audio, text, lengths):
         v, a, t = video.shape[1], audio.shape[1], text.shape[1]
-        types = [0]*(v+1)+[1]*(a+1)+[2]*(t+1)+[2] #<bos>,<sep>video,<sep>audio,<query>query,<eos>
-        position = torch.tensor(range(len(types))).to(self.device)
-        types = torch.tensor(types).to(self.device)
+        types_ = [0]*(v+1)+[1]*(a+1)+[2]*(t+1)+[2] #<bos>,<sep>video,<sep>audio,<query>query,<eos>
+        position = torch.tensor(range(len(types_))).to(self.device).repeat(video.shape[0],1)
+        types = torch.tensor(types_).to(self.device).repeat(video.shape[0],1)
+
+        # l_last = lengths[-1]
+        # types_last = [2]*types.shape[1]
+        # types_last_ = [0]*(l_last+1)+[1]*(l_last+1)+[2]*(t+1)+[2] #<bos>,<sep>video,<sep>audio,<query>query,<eos>
+        # types_last[:len(types_last_)] = types_last_
+        # types_last = torch.tensor(types_last).to(self.device).unsqueeze(0)
+        # print(types_last.shape, types.shape, lengths)
+        # types[-1] = types_last
+        #fix types of the last one
+
         return types, position
 
-    def create_model_input(self, video, audio, text, modalities=None):
-        a=3
-        b=4
+    def create_model_input(self, video, audio, text, lengths, modalities=None):
+        bs = video.shape[0]
 
         embedding_layer = self.model.roberta.embeddings
-        types, position = self.get_token_types_and_position(video, audio, text)
-        special_token_embeds = embedding_layer.word_embeddings(self.special_tokens).unsqueeze(0) #[bos,sep,query,eos]
-        token_type_embeds = embedding_layer.token_type_embeddings(types).unsqueeze(0)
-        position_embeds = embedding_layer.position_embeddings(position).unsqueeze(0)
+        types, position = self.get_token_types_and_position(video, audio, text, lengths) 
+        special_token_embeds = embedding_layer.word_embeddings(self.special_tokens).unsqueeze(0).repeat(bs,1,1) #[bos,sep,query,eos,pad]
+        token_type_embeds = embedding_layer.token_type_embeddings(types)
+        position_embeds = embedding_layer.position_embeddings(position)
 
         bos = special_token_embeds[:,0,:].unsqueeze(1)
         sep = special_token_embeds[:,1,:].unsqueeze(1)
         query = special_token_embeds[:,2,:].unsqueeze(1)
         eos = special_token_embeds[:,3,:].unsqueeze(1)
-        input_embed = torch.cat([bos,video,sep,audio,query,text,eos],dim=1)
+        pad = special_token_embeds[:1,4,:].unsqueeze(1)
+
+        # make same batch size
+        
+        input_embed_a = torch.cat([bos[:-1],video[:-1],sep[:-1],audio[:-1],query[:-1],text[:-1],eos[:-1]],dim=1)
+        input_embed_b = torch.cat([bos[-1:],video[-1:,:lengths[-1]],sep[-1:],audio[-1:,:lengths[-1]],query[-1:],text[-1:],eos[-1:]],dim=1)
+        # pad input_embed_b to input_embed_a shape
+        pad_length = input_embed_a.shape[1]-input_embed_b.shape[1]
+        padding = pad.repeat(1,pad_length,1)
+        input_embed_b = torch.cat([input_embed_b,padding],dim=1)
+        input_embed = torch.cat([input_embed_a,input_embed_b],dim=0)
         model_input = input_embed + token_type_embeds + position_embeds
 
         return model_input

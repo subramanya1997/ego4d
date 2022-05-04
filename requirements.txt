@@ -2,3 +2,6 @@ transformers==4.16.2
 torch
 tensorboard
 future
+terminaltables
+wandb
+scipy

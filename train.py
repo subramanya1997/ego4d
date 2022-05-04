@@ -16,10 +16,11 @@ from transformers import pipeline
 
 from model.meme import MEME
 from model.meme_loss import MEME_LOSS
-from model.utils import fix_seed
+from model.utils import fix_seed, make_windows
 from utils.metrics import decode_candidate_clips, get_best_segment, get_best_scoring_segment
 from utils.evaluate_records import evaluate_predicted_records
 from utils.data_processing import Ego4d_NLQ, get_train_loader, get_test_loader, Modal
+from collections import defaultdict
 
 ISSUE_CIDS = {}
 
@@ -42,10 +43,12 @@ def parse_arguments():
     parser.add_argument("-r", "--record-path", help="path for saving records", type=str, default='output/records/')
     parser.add_argument("-p", "--prefix", help="prefix for this run", type=str, default='meme')
     parser.add_argument("-l", "--loss-type", help="loss type to use", type=str, default='pos_loss')
+    parser.add_argument("-lr", "--learning_rate", help="learning rate", type=float, default=0.001)
     parser.add_argument("-w", "--wandb-name", \
                         help="wandb name for this run, defaults to random names by wandb",\
                         type=str, default=None)
     parser.add_argument("--model-save-path", help="path of the directory with model checkpoint", type=str, default=None)
+    parser.add_argument("--load-path", help="path of the directory with model checkpoint that you want to load", type=str, default=None)
     parser.add_argument("--loss_weight", help="loss weight", type=float, default=0.25)
     add_bool_arg(parser, 'resume', default=False)
     add_bool_arg(parser, 'audio', default=True)
@@ -69,6 +72,9 @@ def parse_arguments():
     parsed_args.best_model_path = os.path.join(parsed_args.model_save_path, f"{parsed_args.prefix}_{parsed_args.wandb_name}_best.pth")
     parsed_args.last_model_path = os.path.join(parsed_args.model_save_path, f"{parsed_args.prefix}_{parsed_args.wandb_name}_last.pth")
 
+    if parsed_args.load_path is None:
+        parsed_args.load_path = parsed_args.last_model_path
+
     if not parsed_args.force_cpu:
         parsed_args.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -84,10 +90,10 @@ def save_checkpoint(model, optimizer, epoch, loss, mIoU, path):
             'loss': loss,
             'mIoU': mIoU
             }, path)
-    wandb.save(path)
+    # wandb.save(path)
 
 def load_checkpoint(model, optimizer, path):
-    wandb.restore(path)
+    # wandb.restore(path)
     checkpoint = torch.load(path)
     model.load_state_dict(checkpoint['model_state_dict'])
     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
@@ -99,9 +105,9 @@ def load_checkpoint(model, optimizer, path):
 
 def get_dataloader(args):
     print("Loading data")
-    train_nlq = Ego4d_NLQ(args.input_train_split, modalities=None, split="train", save_or_load_path=f"{args.dataloader_cache_path}/final_train.pkl", config_file = args.dataloader_config)
-    val_nlq = Ego4d_NLQ(args.input_val_split, modalities=None, split="val", save_or_load_path=f"{args.dataloader_cache_path}/final_val.pkl", config_file = args.dataloader_config)
-    test_nlq = Ego4d_NLQ(args.input_test_split, modalities=None, split="test", save_or_load_path=f"{args.dataloader_cache_path}/final_test.pkl", config_file = args.dataloader_config)
+    train_nlq = Ego4d_NLQ(args.input_train_split, modalities=None, split="train", save_or_load_path=f"{args.dataloader_cache_path}/final_roberta_train.pkl", config_file = args.dataloader_config)
+    val_nlq = Ego4d_NLQ(args.input_val_split, modalities=None, split="val", save_or_load_path=f"{args.dataloader_cache_path}/final_roberta_val.pkl", config_file = args.dataloader_config)
+    test_nlq = Ego4d_NLQ(args.input_test_split, modalities=None, split="test", save_or_load_path=f"{args.dataloader_cache_path}/final_roberta_test.pkl", config_file = args.dataloader_config)
 
     train_loader = get_train_loader(train_nlq, batch_size=1)
     val_loader = get_test_loader(val_nlq, batch_size=1)
@@ -133,9 +139,11 @@ def infer_from_model(pred, topk, qa_pipeline):
     # end = pred[:, 1].cpu().numpy()
     # max_len = args.max_len
     # s, e, scores = decode_candidate_clips(qa_pipeline, start, end, topk, max_len)
-    # s, e, scores = get_best_segment(pred[:,:,-1].cpu().numpy(), topk)
-    pred_p = torch.nn.functional.softmax(pred, dim=-1)
-    s, e, scores = get_best_scoring_segment(pred_p.cpu().numpy(), topk)
+    s, e, scores = get_best_segment(pred[:,:,-1].cpu().numpy(), topk)
+    # pred_p = torch.nn.functional.softmax(pred, dim=-1)
+    # s, e, scores = get_best_segment_improved(pred_p.cpu().numpy(), topk)
+    # pred_p = torch.nn.functional.softmax(pred, dim=-1)
+    # s, e, scores = get_best_scoring_segment(pred_p.cpu().numpy(), topk)
     return s, e, scores
 
 def process_model_inputs(data, args):
@@ -151,7 +159,16 @@ def process_model_inputs(data, args):
     if torch.sum(ends)==0:
         ends[-1][-1] = 1.0
 
-    return features, audio_features, query_emb, starts, ends, is_ans
+    # features, lens = make_windows(features,args.clip_window)
+    # audio_features, _ = make_windows(audio_features,args.clip_window)
+    # query_emb, _ = make_windows(query_emb,args.clip_window)
+    # starts, _ = make_windows(starts,args.clip_window,-100)
+    # ends, _ = make_windows(ends,args.clip_window,-100)
+    # is_ans, _ = make_windows(is_ans,args.clip_window,-100)
+
+    lens = [features.shape[1]]
+
+    return features, audio_features, query_emb, starts, ends, is_ans, lens
 
 def get_modalities(args):
     modals = [Modal._Video,Modal._Transcript]
@@ -171,9 +188,9 @@ def train(model, dataloader, model_loss, optimizer, args, writer, epoch):
     issue_cids = []
     for data in tqdm_obj:
         (_, clip_id, features, audio_features, query_emb, starts, ends, is_ans, _) = data
-        features, audio_features, query_emb, starts, ends, is_ans = process_model_inputs(data, args)
+        features, audio_features, query_emb, starts, ends, is_ans, lens = process_model_inputs(data, args)
     
-        pred = model(features, query_emb, audio_features, modalities = get_modalities(args))
+        pred = model(features, query_emb, audio_features, modalities = get_modalities(args), lengths = lens)
         loss = model_loss(pred, starts, ends, is_ans, loss_type = args.loss_type)
         optimizer.zero_grad()
         loss.backward()
@@ -216,14 +233,17 @@ def test_model(model, dataloader, model_loss, args, writer, epoch, Test = False)
     precision = []
     for i, data in enumerate(tqdm_obj):
         (sample_id, clip_id, features, audio_features, query_emb, starts, ends, is_ans, _) = data
-        features, audio_features, query_emb, starts, ends, is_ans = process_model_inputs(data, args)
+        _, len_vid, _ = features.shape
+        features, audio_features, query_emb, starts, ends, is_ans, lens = process_model_inputs(data, args)
 
         with torch.no_grad():
-            pred = model(features, query_emb, audio_features, modalities = get_modalities(args))
+            pred = model(features, query_emb, audio_features, modalities = get_modalities(args), lengths = lens)
             loss = model_loss(pred, starts, ends, is_ans)
             
         # infer
         s, e, scores = infer_from_model(pred, args.topk, qa_pipeline)
+        if s==[]:
+            s, e = [0], [len_vid-1]
         # print(sample_id, clip_id, torch.sum(ends))
         end_idx = ends.shape[-1]-1 if torch.sum(ends) == 0 else np.where(ends.cpu().numpy() == 1)[-1][0]
         precision.append(calc_precision(pred, is_ans))
@@ -292,9 +312,23 @@ def cache_records_and_evaluate(records, epoch, n_iter, args, nlq_data, writer, t
     # print(score_str)
     return mIoU
 
+def load_model_to_finetune(model, path):
+    checkpoint = torch.load(path)
+    tempName = defaultdict()
+    for name, param in model.named_parameters():
+        _name = None
+        if name.count('model') == 2:
+            _name = name.replace('model.model.roberta', 'model')
+        if name.count('model') == 1:
+            _name = name.replace('model.', '')
+        if _name in checkpoint['model_state_dict']:
+            param.data = checkpoint['model_state_dict'][_name]
+    print(f'Pretrained weights are loaded...')
+    return model
+
 
 if __name__ == "__main__":
-    fix_seed(1234)
+    fix_seed(42)
     args = parse_arguments()
     args, train_loader, val_loader, test_loader, val_nlq, test_nlq = get_dataloader(args)
     args.embedding_dim = args.video_feature_size + args.query_feature_size 
@@ -307,8 +341,11 @@ if __name__ == "__main__":
     best_mIoU = 0
     start_epoch = 0
 
+    if args.load_path and args.preTrained:
+        model = load_model_to_finetune(model, args.load_path)
+
     if wandb.run.resumed or args.resume:
-        model, optimizer, start_epoch, loss, best_mIoU = load_checkpoint(model, optimizer, args.last_model_path)
+        model, optimizer, start_epoch, loss, best_mIoU = load_checkpoint(model, optimizer, args.load_path)
 
     for epoch in range(start_epoch, args.num_epochs):
         train_loss = train(model, train_loader, model_loss, optimizer, args, writer, epoch)

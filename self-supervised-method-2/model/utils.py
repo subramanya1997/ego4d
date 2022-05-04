@@ -15,7 +15,7 @@ def init_custom_model(folder_path="output/models/ssmodel1", model_name= "meme"):
     my_config.save_pretrained(save_directory=folder_path)
     my_config = RobertaConfig.from_pretrained(f"{folder_path}/config.json")
 
-    model = RobertaModel(my_config, add_pooling_layer=False)
+    model = RobertaModel(my_config, add_pooling_layer=True)
 
     # Initialize a tokenizer
     tokenizer = ByteLevelBPETokenizer(lowercase=True)

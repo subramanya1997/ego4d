@@ -3,12 +3,13 @@
 hidden_size: 1024
 num_epochs: 12
 learning_rate: 0.001
-batch_size: 64
+batch_size: 1
 topk: 5 
 model: MLP2_transformer
-clip_window: 1000
+clip_window: 250
 dropout: 0.1
-loss_weight: 0.2422
+loss_weight: 0.2422 #for trimmed training input
+# loss_weight: 0.9713 #for full video training input
 
 ## others
 force_cpu: false
@@ -17,15 +18,18 @@ boundary_smoothing: 9 #smooth over 10 features # not needed anymore
 
 ## data stuff
 update_dataloader: False
-dataloader_cache_path: /scratch/snagabhushan_umass_edu/dataset/v1/save/nlq
+dataloader_cache_path: /work/snagabhushan_umass_edu/dataset/v1/save/nlq
+# dataloader_cache_path: /work/shantanuagar_umass_edu/ego4d/nlq/dataset
+# dataloader_cache_path: /work/shantanuagar_umass_edu/ego4d/nlq/dataset/whole_train
 dataloader_config: ./dataset_config.yaml
-model_save_path: /scratch/shantanuagar_umass_edu/ego4d/model/nlq/
-
+model_save_path: /work/shantanuagar_umass_edu/ego4d/model/nlq/
+# checkpoint_path: None
+preTrained: False
 
 # Video Preprocessing Parameters
-input_train_split: /scratch/shantanuagar_umass_edu/ego4d/nlq/sample/sample_nlq_train.json
-input_val_split: /scratch/shantanuagar_umass_edu/ego4d/nlq/sample/sample_nlq_val.json
-input_test_split: /scratch/shantanuagar_umass_edu/ego4d/nlq/sample/sample_nlq_test.json
+input_train_split: /work/shantanuagar_umass_edu/ego4d/nlq/sample/sample_nlq_train.json
+input_val_split: /work/shantanuagar_umass_edu/ego4d/nlq/sample/sample_nlq_val.json
+input_test_split: /work/shantanuagar_umass_edu/ego4d/nlq/sample/sample_nlq_test.json
 video_feature_read_path: data/video_features/
 clip_feature_save_path: data/saved_clip_features/ # save path for output clip features
 output_save_path: data/nlq_official_v1 # save path for clip info along with train-val split
