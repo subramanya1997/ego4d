@@ -130,3 +130,4 @@ sbatch/
 # VS Code debugger
 .vscode
 testing.py
+config.yaml
