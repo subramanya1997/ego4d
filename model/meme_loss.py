@@ -30,12 +30,33 @@ class MEME_LOSS(nn.Module):
             output = self.pos_loss(pred, target_in_range)
         elif loss_type == 'joint_loss':
             output = self.joint_loss(pred, target_in_range)
+        elif loss_type == 'joint_loss2':
+            output = self.joint_loss2(pred, target_in_range)
         return output
 
     def joint_loss(self, pred, target_in_range):
         # have to weight probabilities with the probability of the window
         window_probs = pred[:,0,1]
         window_probs = F.softmax(window_probs, dim=0).to(torch.float)
+
+        # compute the loss
+        window_labels = label_windows(target_in_range).requires_grad_(False)
+        classif_loss = self.loss_fn(window_probs, window_labels.to(pred.device).to(torch.float))
+
+        loss_pos = self.pos_loss(pred[:,1:], target_in_range)
+        loss = (1 - self.loss_weight2) * classif_loss + self.loss_weight2 * loss_pos
+
+        return loss
+    
+    def joint_loss2(self, pred, target_in_range):
+        # have to weight probabilities with the probability of the window
+        window_probs = pred[:,0,1]
+        window_probs = F.softmax(window_probs, dim=0).to(torch.float)
+
+        frame_probs = pred[:,1:]
+        frame_probs = F.softmax(frame_probs, dim=2).to(torch.float)
+
+        
 
         # compute the loss
         window_labels = label_windows(target_in_range).requires_grad_(False)

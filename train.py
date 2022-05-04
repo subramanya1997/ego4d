@@ -253,7 +253,7 @@ def test_model(model, dataloader, model_loss, args, writer, epoch, Test = False)
     pred_ = []
     gt_ = []
     for i, data in enumerate(tqdm_obj):
-        (sample_id, clip_id, features, audio_features, query_emb, starts, ends, is_ans, _) = data
+        (sample_id, clip_id, features, audio_features, query_emb, orig_starts, orig_ends, is_ans, _) = data
         _, len_vid, _ = features.shape
         features, audio_features, query_emb, starts, ends, is_ans, lens = process_model_inputs(data, args)
 
@@ -272,7 +272,7 @@ def test_model(model, dataloader, model_loss, args, writer, epoch, Test = False)
         if s==[]:
             s, e = [0], [len_vid-1]
         # print(sample_id, clip_id, torch.sum(ends))
-        end_idx = ends.shape[-1]-1 if torch.sum(ends) == 0 else np.where(ends.cpu().numpy() == 1)[-1][0]
+        end_idx = orig_ends.shape[-1]-1 if torch.sum(orig_ends) == 0 else np.where(orig_ends.cpu().numpy() == 1)[-1][0]
         pred_ += process_pred(pred).cpu().numpy().reshape(-1)[:sum(lens)].tolist()
         gt_ += is_ans.cpu().numpy().reshape(-1)[:sum(lens)].tolist()
         records.append({"sample_id": int(sample_id[0]), 
@@ -280,7 +280,7 @@ def test_model(model, dataloader, model_loss, args, writer, epoch, Test = False)
                         "start": list([int(x) for x in s]), 
                         "end": list([int(x) for x in e]), 
                         "score": list([float(x) for x in scores]),
-                        "GT_starts": int(np.where(starts.cpu().numpy() == 1)[-1][0]),
+                        "GT_starts": int(np.where(orig_starts.cpu().numpy() == 1)[-1][0]),
                         "GT_ends": int(end_idx),
                         "Loss": float(loss.cpu().item())})
 
