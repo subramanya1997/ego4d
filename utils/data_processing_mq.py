@@ -13,7 +13,7 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 
 #import transformer
-from transformers import BertTokenizer, BertModel
+from transformers import RobertaTokenizer, RobertaModel
 
 #import custom functions
 from utils.data_utils import load_pickle, save_pickle
@@ -195,6 +195,8 @@ class Ego4d_MQ(Dataset):
                 audio_features = audio_features[ s_a_idx : e_a_idx , : ]
 
         query_label_features = sample_query['query_label_features']
+        if query_label_features is not None:
+            query_label_features = [query_label_features for item in range(s_v_idx, e_v_idx)]
         
         is_s = [ (sample_query['s_video_frame'] == i) for i in range(s_v_idx, e_v_idx)]
         is_e = [ (sample_query['e_video_frame'] == i) for i in range(s_v_idx, e_v_idx)]
@@ -223,7 +225,7 @@ class Ego4d_MQ(Dataset):
             "annotation_uid": sample_map["annotation_uid"],
             "clip_id": sample_map["clip_id"],
             "query_idx": sample_map["query_idx"],
-            "query": sample_map["query"],
+            "query": sample_map["query_label"],
             "s_time": sample_map["exact_s_time"],
             "e_time": sample_map["exact_e_time"],
         }
@@ -370,8 +372,8 @@ class Ego4d_MQ(Dataset):
         # use cuda if available
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         # text features models
-        tokenizer = BertTokenizer.from_pretrained(self.parsed_args.wordEmbedding_model)
-        model = BertModel.from_pretrained(self.parsed_args.wordEmbedding_model, output_hidden_states = True ).to(device) # Whether the model returns all hidden-states.
+        tokenizer = RobertaTokenizer.from_pretrained(self.parsed_args.wordEmbedding_model)
+        model = RobertaModel.from_pretrained(self.parsed_args.wordEmbedding_model, output_hidden_states = True ).to(device) # Whether the model returns all hidden-states.
         model.eval()         
 
         for clp, data_item in tqdm(data.items(), total=len(data), desc=f"process episodic mq {self.split}"): 
@@ -411,7 +413,8 @@ class Ego4d_MQ(Dataset):
                     e_audio_frame = min(num_audio_frames-1, a_timestamps[1]+5)
 
                 #tokenizer for bert with [cls] token
-                input = tokenizer(query_label, return_tensors='pt').to(device)
+                _query = query_label.strip().lower()
+                input = tokenizer(_query, return_tensors='pt').to(device)
                 _text_features = None
                 with torch.no_grad():
                     _text_features = model(**input).last_hidden_state.to('cpu')
@@ -468,7 +471,6 @@ def get_test_loader(dataset, batch_size):
     return test_loader
 
 def train_collate_fn(batch):
-    # sample_id, clip_id, clip_features, audio_features, query_features, is_s, is_e, is_ans, info = zip(*batch)
     sample_id, clip_id, clip_features, audio_features, query_label_features, is_s, is_e, is_ans, info = zip(*batch)
     if clip_features[0] is None: #TODO
         return clip_id, clip_features, query_label_features, is_s, is_e, is_ans #TODO
@@ -480,16 +482,14 @@ def train_collate_fn(batch):
     clip_features = torch.stack(clip_features)
 
     default_audio = torch.zeros(clip_features[0].shape[0],info[0]['Audio Feature Size']).to(clip_features)
+    # default_audio = torch.zeros(clip_features[0].shape[0],768).to(clip_features)
     audio_features = [torch.mean(x,dim=1) if x is not None else default_audio for x in audio_features]
     audio_features = torch.stack(audio_features)
     
     #get only CLS embedding for query
-    query_label_features = [torch.cat([y[:,0,:] for y in x],dim=0) for x in query_label_features]
-    query_label_features = torch.stack(query_label_features)
-
     is_s = torch.stack([torch.tensor(x) for x in is_s]).to(torch.float)
     is_e = torch.stack([torch.tensor(x) for x in is_e]).to(torch.float)
     is_ans = torch.stack([torch.tensor(x) for x in is_ans]).to(torch.float)
-    # frame_length = torch.stack([torch.tensor(x) for x in frame_length])
 
-    return sample_id, clip_id, clip_features, audio_features, query_label_features, is_s, is_e, is_ans, info
+
+    return sample_id, clip_id, clip_features, audio_features, query_label_features[0][0], is_s, is_e, is_ans, info
