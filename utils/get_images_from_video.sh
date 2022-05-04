@@ -1,4 +1,5 @@
-py videos_to_images.py \
-    --annot-paths S:\\umass\\696ds\\fb-ego4d\\ego4d_data\\v1\\annotations\\vq_val.json \
-    --save-root  S:\\umass\\696ds\\vq_clip_img3 \
-    --ego4d-videos-root S:\\umass\\696ds\\fb-ego4d\\ego4d_data\\v1\\clips 
+python3 videos_to_images.py \
+    --annot-paths /work/sreeragiyer_umass_edu/ego4d_data/v1/annotations/vq_train.json \
+    --save-root  /work/sreeragiyer_umass_edu/ego4d_data/v1/vq_train_images \
+    --ego4d-videos-root /work/sreeragiyer_umass_edu/ego4d_data/v1/vq_train_clips \
+    --num-workers 30 
