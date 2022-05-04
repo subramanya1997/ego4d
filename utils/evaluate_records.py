@@ -76,6 +76,9 @@ def evaluate_w_gt(gt_json_path,predictions,epoch):
         results, mIoU = ego4d_eval.evaluate_nlq_performance(
             predictions, ground_truth, thresholds, topK
         )
+        # results, mIoU = ego4d_eval.evaluate_mq_performance(
+        #     predictions, ground_truth, thresholds, topK
+        # )
         title = f"Epoch {epoch}"
         score_str = ego4d_eval.display_results(
             results, mIoU, thresholds, topK, title=title
