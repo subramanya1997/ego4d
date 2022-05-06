@@ -176,10 +176,10 @@ class Ego4d_NLQ(Dataset):
         s_v_idx, e_v_idx = sample_query["video_range"]
         s_a_idx, e_a_idx = sample_query["audio_range"]
         
-        clip_path = sample_query['clip_path'].replace('scratch', 'work')
+        clip_path = sample_query['clip_path']
         clip_id = sample_query['clip_id']
 
-        audio_path = sample_query['audio_path'].replace('scratch', 'work') if sample_query['audio_path'] is not None else None
+        audio_path = sample_query['audio_path']
 
         # clip_path = clip_path.replace('/scratch/snagabhushan_umass_edu/dataset/v1/clip_features/','data/saved_clip_features/')
         # audio_path = clip_path.replace('/scratch/snagabhushan_umass_edu/dataset/v1/clip_features/','/work/snagabhushan_umass_edu/dataset/v1/audio_features_from_video/')
@@ -191,6 +191,7 @@ class Ego4d_NLQ(Dataset):
                 if clip_path is not None:
                     clip_features = torch.load(clip_path)
                     clip_features = clip_features[ s_v_idx : e_v_idx , : ]
+                    
 
             if (Modal._Audio in self.modalities):
                 if audio_path is not None:
@@ -373,6 +374,13 @@ class Ego4d_NLQ(Dataset):
                 if (Modal._Audio in self.modalities): 
                     if (info['audio_path'] == None) :
                         continue
+            
+            else:
+                if (info['clip_path'] == None):
+                    continue
+            
+            if info['annotated_frame_length'] < 1:
+                continue
 
             # number of frames as options
             if self.min_frames is not None:
@@ -497,10 +505,13 @@ def train_collate_fn(batch):
     if clip_features[0] is None: #TODO
         return clip_id, clip_features, query_features, is_s, is_e, is_ans #TODO
 
+    # info = {}
     # TODO have to pad different clip lengths with some token - make loss fn ignore those too
     clip_id = [x for x in clip_id]
     sample_id = [x for x in sample_id]
-    assert len(clip_features) == 1
+
+    # lens = [x.shape[0] for x in clip_features]
+    # info['lengths'] = lens
     clip_features = torch.stack(clip_features)
 
     # default_audio = info[0]['default_audio'].repeat(clip_features[0].shape[0], 1).to(clip_features)
@@ -508,13 +519,13 @@ def train_collate_fn(batch):
     audio_features = [torch.mean(x,dim=1) if x is not None else default_audio for x in audio_features]
     audio_features = torch.stack(audio_features)
     
-    #get only CLS embedding for query
     query_features = [x[0] for x in query_features]
+    # qlens = [x.shape[0] for x in query_features]
+    # info['query_lengths'] = qlens
     query_features = torch.cat(query_features,axis=0)
 
     is_s = torch.stack([torch.tensor(x) for x in is_s]).to(torch.float)
     is_e = torch.stack([torch.tensor(x) for x in is_e]).to(torch.float)
     is_ans = torch.stack([torch.tensor(x) for x in is_ans]).to(torch.float)
     # frame_length = torch.stack([torch.tensor(x) for x in frame_length])
-
     return sample_id, clip_id, clip_features, audio_features, query_features, is_s, is_e, is_ans, info

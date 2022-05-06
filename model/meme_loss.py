@@ -21,7 +21,7 @@ class MEME_LOSS(nn.Module):
         self.ce_loss = nn.CrossEntropyLoss(weight = self.loss_weight,ignore_index=-100)
         
         
-    def forward(self, pred, target_start, target_end, target_in_range, loss_type='pos_loss', lens=None):
+    def forward(self, pred, target_start, target_end, target_in_range, loss_type='pos_loss', lens=None, center_idx = None):
         if loss_type == 'hard_qa':
             output = self.qa_loss(pred, target_start, target_end, lens)
         elif loss_type == 'soft_qa':
@@ -32,7 +32,14 @@ class MEME_LOSS(nn.Module):
             output = self.joint_loss(pred, target_in_range)
         elif loss_type == 'joint_loss2':
             output = self.joint_loss2(pred, target_in_range)
+        elif loss_type == 'center':
+            output = self.center_loss(pred, center_idx)
         return output
+
+    def center_loss(self, pred, center_idx):
+        # have to weight probabilities with the probability of the window
+        loss = self.ce_loss_fn(pred, center_idx)
+        return loss
 
     def joint_loss(self, pred, target_in_range):
         # have to weight probabilities with the probability of the window

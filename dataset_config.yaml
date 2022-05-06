@@ -1,5 +1,5 @@
 #paths
-video_features_path: /work/snagabhushan_umass_edu/dataset/v1/clip_features/
+video_features_path: /work/shantanuagar_umass_edu/ego4d/saved_clip_features/
 audio_features_path: /work/snagabhushan_umass_edu/dataset/v1/audio_features/
 default_audio_path: /work/shantanuagar_umass_edu/ego4d/meme/ego4d/output/mean_audio.pt
 
@@ -8,12 +8,12 @@ video_fps: 30
 video_window_size: 16
 audio_fps: 16000
 audio_window_size: 8533
-wordEmbedding_model: roberta-large #model
+wordEmbedding_model: roberta-base #model
 
 #filters
-number_of_sample: None
-max_frames: 50 #None
-min_frames: 5
+number_of_sample: 5000 #None
+max_frames: None
+min_frames: 1
 
 #load and save
 save_or_load: True

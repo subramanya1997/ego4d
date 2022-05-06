@@ -6,6 +6,7 @@ from model.mlp import MLP
 from model.mlp2 import MLP2
 from model.meme_transformer import MEME_BASE
 from model.meme_multi import MEME_MULTI
+from model.meme_b import MEME_B
 
 from utils.data_processing import Modal
 
@@ -18,6 +19,8 @@ class MEME(nn.Module):
             self.model=MLP2(args)
         elif args.model=='MEME_MULTI':
             self.model=MEME_MULTI(args)
+        elif args.model=='MEME_B':
+            self.model=MEME_B(args)
         else:
             self.model=MEME_BASE(args)
         
