@@ -22,6 +22,7 @@ from utils.evaluate_records import evaluate_predicted_records
 from utils.data_processing import Ego4d_NLQ, get_train_loader, get_test_loader, Modal
 
 ISSUE_CIDS = {}
+# os.environ['TRANSFORMERS_CACHE'] = '/work/shantanuagar_umass_edu/ego4d/meme/ego4d/cache/'
 
 '''
 https://stackoverflow.com/a/31347222/4706073
@@ -203,7 +204,7 @@ def random_process_model_inputs(data, args, window_size=400):
     max_shape = min(features.shape[1],audio_features.shape[1])
     window_size = min(window_size,max_shape)
     features = features[:,:max_shape,:]
-    starts_idx[0] = min(starts_idx[0],max_shape-1)
+    starts_idx[0] = min(starts_idx[0],max_shape-1) #TODO WHY THIS!
     ends_idx[0] = min(ends_idx[0],max_shape-1)
     audio_features = audio_features[:,:max_shape,:]
     ends = ends[:,:max_shape]
