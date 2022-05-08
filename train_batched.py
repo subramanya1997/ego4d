@@ -211,6 +211,7 @@ def train(model, dataloader, model_loss, optimizer, args, writer, epoch):
         iter += 1
 
         # end train loop
+    total_loss /= len(dataloader)
     wandb.log({f"loss/train": total_loss})
 
     if epoch==0:
@@ -285,6 +286,7 @@ def test_model(model, dataloader, model_loss, args, writer, epoch, Test = False)
         iter += 1
 
         # end val loop
+    total_loss /= len(dataloader)
     split = "Test" if Test else "Val"
     wandb.log({f"loss/{split}": total_loss})
     split = "test" if Test else "val"
