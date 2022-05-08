@@ -482,11 +482,12 @@ class Ego4d_NLQ(Dataset):
                 self.idx_counter += e_frame - s_frame + 1
                 self.idx_sample_query += 1
 
-def get_train_loader(dataset, batch_size):
+def get_train_loader(dataset, batch_size, num_workers = 0):
     train_loader = DataLoader(
         dataset=dataset,
         batch_size=batch_size,
         shuffle=True,
+        num_workers=num_workers,
         collate_fn=train_collate_fn,
     )
     return train_loader
@@ -500,32 +501,79 @@ def get_test_loader(dataset, batch_size):
     )
     return test_loader
 
+def collate_variable_length_sequences(tensor_list):
+    """Collate function for variable length sequences"""
+    lengths = [tensor.shape[0] for tensor in tensor_list]
+    max_length = max(lengths)
+    lengths = torch.tensor(lengths).long().to(tensor_list[0].device)
+    padded_tensor = torch.nn.utils.rnn.pad_sequence(tensor_list, batch_first=True, padding_value=0)
+    return padded_tensor, lengths
+
+def random_process_model_inputs(data, window_size=400):
+    (sample_id, clip_id, features, audio_features, query_emb, starts, ends, is_ans, info) = data
+
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    # process_modality_features
+    starts_idx = info['start_frame_idx']
+    ends_idx = info['end_frame_idx']
+
+    # processing features TODO starnd and end
+    max_shape = min(features.shape[0],audio_features.shape[0]) if audio_features is not None else features.shape[0]
+    window_size = min(window_size,max_shape)
+    features = features[:max_shape,:]
+    starts_idx = min(starts_idx,max_shape-1) #TODO WHY THIS!
+    ends_idx = min(ends_idx,max_shape-1)
+    audio_features = audio_features[:max_shape,:] if audio_features is not None else audio_features
+    ends = ends[:max_shape]
+    starts = starts[:max_shape]
+    is_ans = is_ans[:max_shape]
+
+
+    #place in window of 500
+    #make window
+    pred_w = np.random.randint(0,min(window_size,starts_idx)) if starts_idx>0 else 0
+    suc_w = window_size-(ends_idx-starts_idx+1) - pred_w
+    new_s = pred_w
+    new_e = pred_w + (ends_idx-starts_idx)
+    
+    #put everything in that window
+    features = features[starts_idx-pred_w:ends_idx+suc_w+1].to(device)
+    audio_features = audio_features[starts_idx-pred_w:ends_idx+suc_w+1].to(device) if audio_features is not None else audio_features
+    starts = torch.tensor(starts[starts_idx-pred_w:ends_idx+suc_w+1]).to(device).to(torch.float)
+    ends = torch.tensor(ends[starts_idx-pred_w:ends_idx+suc_w+1]).to(device).to(torch.float)
+    is_ans = torch.tensor(is_ans[starts_idx-pred_w:ends_idx+suc_w+1]).to(device).to(torch.float)
+    center_idx = torch.tensor([min(window_size - 1 ,new_s + (new_e-new_s)//2)]).to(device).to(torch.float)
+    offset = torch.tensor(starts_idx-pred_w).to(device).to(torch.int)
+
+    # recreate batch
+    batch = (sample_id, clip_id, features, audio_features, query_emb, starts, ends, is_ans, info, offset, center_idx)
+
+    return batch
+
 def train_collate_fn(batch):
-    sample_id, clip_id, clip_features, audio_features, query_features, is_s, is_e, is_ans, info = zip(*batch)
+    batch = [random_process_model_inputs(x, window_size=400) for x in batch]
+    sample_id, clip_id, clip_features, audio_features, query_features, is_s, is_e, is_ans, info, offset, center_idx = zip(*batch)
     if clip_features[0] is None: #TODO
         return clip_id, clip_features, query_features, is_s, is_e, is_ans #TODO
 
-    # info = {}
-    # TODO have to pad different clip lengths with some token - make loss fn ignore those too
     clip_id = [x for x in clip_id]
     sample_id = [x for x in sample_id]
 
-    # lens = [x.shape[0] for x in clip_features]
-    # info['lengths'] = lens
-    clip_features = torch.stack(clip_features)
-
     # default_audio = info[0]['default_audio'].repeat(clip_features[0].shape[0], 1).to(clip_features)
-    default_audio = torch.zeros(clip_features[0].shape[0],info[0]['Audio Feature Size']).to(clip_features)
+    default_audio = torch.zeros(clip_features[0].shape[0],info[0]['Audio Feature Size']).to(clip_features[0])
     audio_features = [torch.mean(x,dim=1) if x is not None else default_audio for x in audio_features]
-    audio_features = torch.stack(audio_features)
-    
-    query_features = [x[0] for x in query_features]
-    # qlens = [x.shape[0] for x in query_features]
-    # info['query_lengths'] = qlens
-    query_features = torch.cat(query_features,axis=0)
+    query_features = [x[0].squeeze(0) for x in query_features]
 
-    is_s = torch.stack([torch.tensor(x) for x in is_s]).to(torch.float)
-    is_e = torch.stack([torch.tensor(x) for x in is_e]).to(torch.float)
-    is_ans = torch.stack([torch.tensor(x) for x in is_ans]).to(torch.float)
-    # frame_length = torch.stack([torch.tensor(x) for x in frame_length])
-    return sample_id, clip_id, clip_features, audio_features, query_features, is_s, is_e, is_ans, info
+    clip_features, clip_lengths = collate_variable_length_sequences(clip_features)
+    audio_features, audio_lengths = collate_variable_length_sequences(audio_features)
+    query_features, query_lengths = collate_variable_length_sequences(query_features)
+    is_s, _ = collate_variable_length_sequences(is_s)
+    is_e, _ = collate_variable_length_sequences(is_e)
+    is_ans, _ = collate_variable_length_sequences(is_ans)
+    offset = torch.stack(offset)
+    center_idx = torch.stack(center_idx)
+
+    query_features = query_features.to(clip_features.device)
+
+    return sample_id, clip_id, clip_features, audio_features, query_features, is_s, is_e, is_ans, info, clip_lengths, query_lengths, offset, center_idx

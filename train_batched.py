@@ -23,7 +23,8 @@ from utils.data_processing import Ego4d_NLQ, get_train_loader, get_test_loader, 
 
 ISSUE_CIDS = {}
 # os.environ['TRANSFORMERS_CACHE'] = '/work/shantanuagar_umass_edu/ego4d/meme/ego4d/cache/'
-
+torch.multiprocessing.set_start_method('spawn')
+torch.multiprocessing.set_sharing_strategy('file_system')
 '''
 https://stackoverflow.com/a/31347222/4706073
 '''
@@ -113,9 +114,9 @@ def get_dataloader(args):
     val_nlq = Ego4d_NLQ(args.input_val_split, modalities=None, split="val", save_or_load_path=f"{args.dataloader_cache_path}/final_val.pkl", config_file = args.dataloader_config)
     test_nlq = Ego4d_NLQ(args.input_test_split, modalities=None, split="test", save_or_load_path=f"{args.dataloader_cache_path}/final_test.pkl", config_file = args.dataloader_config)
 
-    train_loader = get_train_loader(train_nlq, batch_size=1)
-    val_loader = get_test_loader(val_nlq, batch_size=1)
-    test_loader = get_test_loader(test_nlq, batch_size=1)
+    train_loader = get_train_loader(train_nlq, batch_size=args.batch_size, num_workers=args.num_workers)
+    val_loader = get_test_loader(val_nlq, batch_size=args.batch_size)
+    test_loader = get_test_loader(test_nlq, batch_size=args.batch_size)
 
     args.video_feature_size = train_nlq.video_feature_size if train_nlq.video_feature_size is not None else 0
     args.query_feature_size = train_nlq.query_feature_size if train_nlq.query_feature_size is not None else 0
@@ -158,99 +159,25 @@ def infer_from_model(pred, topk, qa_pipeline, lens = None):
     
     return s, e, scores
 
-def process_model_inputs(data, args):
-    (_, clip_id, features, audio_features, query_emb, starts, ends, is_ans, info) = data
-    # process_modality_features
-    # starts = torch.tensor([x['start_frame_idx'] for x in info])
-    # ends = torch.tensor([x['end_frame_idx'] for x in info])
-
-    features = features.to(args.device)
-    audio_features = audio_features.to(args.device)
-    query_emb = query_emb.to(args.device)
-    starts = starts.to(args.device)
-    ends = ends.to(args.device)
-    is_ans = is_ans.to(args.device)
-
-    if torch.sum(ends)==0:
-        ends[-1][-1] = 1.0
-
-    features, lens = make_windows(features,args.clip_window)
-    audio_features, _ = make_windows(audio_features,args.clip_window)
-    # query_emb, _ = make_windows(query_emb,args.clip_window)
-    query_emb = query_emb.repeat(features.shape[0],1,1)
-    starts, _ = make_windows(starts,args.clip_window,-100)
-    ends, _ = make_windows(ends,args.clip_window,-100)
-    is_ans, _ = make_windows(is_ans,args.clip_window,-100)
-
-
-    # lens = [features.shape[1]]
-
-    return features, audio_features, query_emb, starts, ends, is_ans, lens
-
-def random_process_model_inputs(data, args, window_size=400):
-    (_, clip_id, features, audio_features, query_emb, starts, ends, is_ans, info) = data
-    # process_modality_features
-    starts_idx = torch.tensor([x['start_frame_idx'] for x in info])
-    ends_idx = torch.tensor([x['end_frame_idx'] for x in info])
-
-    features = features.to(args.device)
-    audio_features = audio_features.to(args.device)
-    query_emb = query_emb.to(args.device)
-    starts = starts.to(args.device)
-    ends = ends.to(args.device)
-    is_ans = is_ans.to(args.device)
-
-    #place in window of 500
-    max_shape = min(features.shape[1],audio_features.shape[1])
-    window_size = min(window_size,max_shape)
-    features = features[:,:max_shape,:]
-    starts_idx[0] = min(starts_idx[0],max_shape-1) #TODO WHY THIS!
-    ends_idx[0] = min(ends_idx[0],max_shape-1)
-    audio_features = audio_features[:,:max_shape,:]
-    ends = ends[:,:max_shape]
-    starts = starts[:,:max_shape]
-    is_ans = is_ans[:,:max_shape]
-    features = features.to(args.device)
-    audio_features = audio_features.to(args.device)
-    # print("bbwin:",features.shape, audio_features.shape)
-    pred_w = np.random.randint(0,min(window_size,starts_idx[0])) if starts_idx[0]>0 else 0
-    suc_w = window_size-(ends_idx[0]-starts_idx[0]+1) - pred_w
-    new_s = pred_w
-    new_e = pred_w + (ends_idx[0]-starts_idx[0])
-    features = features[:,starts_idx[0]-pred_w:ends_idx[0]+suc_w+1]
-    audio_features = audio_features[:,starts_idx[0]-pred_w:ends_idx[0]+suc_w+1]
-    starts = starts[:,starts_idx[0]-pred_w:ends_idx[0]+suc_w+1]
-    ends = ends[:,starts_idx[0]-pred_w:ends_idx[0]+suc_w+1]
-    is_ans = is_ans[:,starts_idx[0]-pred_w:ends_idx[0]+suc_w+1]
-    # print("bwin:",features.shape, audio_features.shape)
-
-    # if torch.sum(ends)==0:
-    #     ends[-1][-1] = 1.0
-
-    # features, lens = make_windows(features,args.clip_window)
-    # audio_features, _ = make_windows(audio_features,args.clip_window)
-    # # query_emb, _ = make_windows(query_emb,args.clip_window)
-    # query_emb = query_emb.repeat(features.shape[0],1,1)
-    # starts, _ = make_windows(starts,args.clip_window,-100)
-    # ends, _ = make_windows(ends,args.clip_window,-100)
-    # is_ans, _ = make_windows(is_ans,args.clip_window,-100)
-
-    center_idx = torch.tensor([min(window_size - 1 ,new_s + (new_e-new_s)//2)])
-
-    lens = [features.shape[1]]
-    offset = starts_idx[0]-pred_w
-
-    # print(features.shape, query_emb.shape, offset, center_idx, pred_w, suc_w)
-    # print(clip_id, window_size,new_s, new_e, ends_idx[0], starts_idx[0])
-
-    return features, audio_features, query_emb, starts, ends, is_ans, lens, offset, center_idx
-
-
 def get_modalities(args):
     modals = [Modal._Video,Modal._Transcript]
     if args.audio:
         modals.append(Modal._Audio)
     return modals
+
+def process_data(data, device):
+    (sample_id, clip_id, features, audio_features, query_emb, starts, ends, is_ans, info, clip_lengths, query_lengths, offset, center_idx) = data
+    features = features.to(device)
+    audio_features = audio_features.to(device)
+    query_emb = query_emb.to(device)
+    starts = starts.to(device)
+    ends = ends.to(device)
+    is_ans = is_ans.to(device)
+    clip_lengths = clip_lengths.to(device)
+    query_lengths = query_lengths.to(device)
+    offset = offset.to(device)
+    center_idx = center_idx.to(device)
+    return sample_id, clip_id, features, audio_features, query_emb, starts, ends, is_ans, info, clip_lengths, query_lengths, offset, center_idx
 
 def train(model, dataloader, model_loss, optimizer, args, writer, epoch):
     model.train()
@@ -263,24 +190,16 @@ def train(model, dataloader, model_loss, optimizer, args, writer, epoch):
     total_loss = 0
     issue_cids = []
     for data in tqdm_obj:
-        (_, clip_id, features, audio_features, query_emb, starts, ends, is_ans, _) = data
-
-        for step in range(1):
-            # features, audio_features, query_emb, starts, ends, is_ans, lens = process_model_inputs(data, args)
-            features, audio_features, query_emb, starts, ends, is_ans, lens, _, center_idx = random_process_model_inputs(data, args)
-        
-            loss_labels = {
-                    'starts':starts, 
-                    'ends':ends, 
-                    'is_ans':is_ans,
-                    'center_idx':center_idx,
-                    'loss_type': 'center'}        
-            pred, loss = model(features, query_emb, audio_features, modalities = get_modalities(args), lengths = lens, loss_labels = loss_labels)
-            # loss = model_loss(pred, starts, ends, is_ans, loss_type = args.loss_type)
-            optimizer.zero_grad()
-            loss = loss.mean()
-            loss.backward()
-            optimizer.step()
+        data = process_data(data, args.device)
+        (_, _, features, audio_features, query_emb, starts, ends, is_ans, _, clip_lengths, query_lengths, _, center_idx) = data
+       
+        pred, loss = model(features, query_emb, audio_features, clip_lengths = clip_lengths, \
+                            query_lengths = query_lengths, center_idx = center_idx, is_ans = is_ans)
+        # loss = model_loss(pred, starts, ends, is_ans, loss_type = args.loss_type)
+        optimizer.zero_grad()
+        loss = loss.mean()
+        loss.backward()
+        optimizer.step()
         #scheduler.step()
 
         # Logging
@@ -318,44 +237,43 @@ def test_model(model, dataloader, model_loss, args, writer, epoch, Test = False)
     pred_ = []
     gt_ = []
     for i, data in enumerate(tqdm_obj):
-        (sample_id, clip_id, features, audio_features, query_emb, starts_orig, ends_orig, is_ans, _) = data
-        _, len_vid, _ = features.shape
-        # features, audio_features, query_emb, starts, ends, is_ans, lens = process_model_inputs(data, args)
-        features, audio_features, query_emb, starts, ends, is_ans, lens, offset, center_idx = random_process_model_inputs(data, args)
-
+        data = process_data(data, args.device)
+        (sample_id, clip_id, features, audio_features, query_emb, starts, ends, is_ans, info, clip_lengths, query_lengths, offsets, center_idx) = data
+    
         with torch.no_grad():
-            loss_labels = {
-                'starts':starts, 
-                'ends':ends, 
-                'is_ans':is_ans,
-                'center_idx':center_idx,
-                'loss_type': 'center'}
-            pred, loss = model(features, query_emb, audio_features, modalities = get_modalities(args), lengths = lens,loss_labels=loss_labels)
+            pred, loss = model(features, query_emb, audio_features, clip_lengths = clip_lengths, \
+                            query_lengths = query_lengths, center_idx = center_idx, is_ans = is_ans)
             loss = loss.mean()
             # loss = model_loss(pred, starts, ends, is_ans, loss_type = args.loss_type)
             
         # infer
-        pred_idx = np.argmax(pred.detach().cpu().numpy(), axis=-1)[0]
-        gt = center_idx.cpu().numpy().tolist()[0]
-        pred_.append(np.abs(pred_idx-gt)<=5)
-        s, e, scores = [], [], []
-        for i in range(5):
-            s.append(max(0,pred_idx-10*(i+1)))
-            e.append(min(pred.shape[-1],pred_idx+10*(i+1)))
-            scores.append(1/(i+1))
+        # pred = (batch size, max_len)
+        for i, p in enumerate(pred):
+            end_orig = info[i]['end_frame_idx']
+            start_orig = info[i]['start_frame_idx']
+            offset = offsets[i].cpu().numpy().item()
+            pred_idx = np.argmax(p.detach().cpu().numpy(), axis=-1)[0]
+            gt = center_idx.cpu().numpy()[i]
+            pred_.append(np.abs(pred_idx-gt)<=5)
+            s, e, scores = [], [], []
+            for i in range(5):
+                s.append(max(0,pred_idx-10*(i+1)))
+                e.append(min(p.shape[-1],pred_idx+10*(i+1)))
+                scores.append(1/(i+1))
 
-        # print(sample_id, clip_id, torch.sum(ends))
-        end_idx = ends_orig.shape[-1]-1 if torch.sum(ends_orig) == 0 else np.where(ends_orig.cpu().numpy() == 1)[-1][0]
-        records.append({"sample_id": int(sample_id[0]), 
-                        "clip_id": str(clip_id[0]),
-                        "start": list([int(offset+x) for x in s]), 
-                        "pred_center": int(pred_idx), 
-                        "gt_center": int(gt), 
-                        "end": list([int(offset+x) for x in e]), 
-                        "score": list([float(x) for x in scores]),
-                        "GT_starts": int(np.where(starts_orig.cpu().numpy() == 1)[-1][0]),
-                        "GT_ends": int(end_idx),
-                        "Loss": float(loss.cpu().item())})
+            # print(sample_id, clip_id, torch.sum(ends))
+            records.append({"sample_id": int(sample_id[0]), 
+                            "clip_id": str(clip_id[0]),
+                            "start": list([int(offset+x) for x in s]), 
+                            "pred_center": int(pred_idx), 
+                            "gt_center": int(gt), 
+                            "end": list([int(offset+x) for x in e]), 
+                            "score": list([float(x) for x in scores]),
+                            "orig center": int(gt+offset),
+                            "GT_starts": int(start_orig),
+                            "GT_ends": int(end_orig),
+                            "Frame length": int(info[i]['Frame length']),
+                            "Loss": float(loss.cpu().item())})
 
         # Logging
         total_loss += loss.cpu().item()

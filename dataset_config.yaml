@@ -11,7 +11,7 @@ audio_window_size: 8533
 wordEmbedding_model: roberta-base #model
 
 #filters
-number_of_sample: 5000 #None
+number_of_sample: None
 max_frames: None
 min_frames: 1
 

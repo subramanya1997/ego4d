@@ -31,19 +31,27 @@ class MEME_B(nn.Module):
             nn.Dropout(dropout),
         )
         
-    def forward(self, video, text, audio=None, modalities=None, lengths = None, loss_labels=None, **kwargs):
+    def forward(self, video, text, audio, clip_lengths = None, query_lengths = None, \
+                    center_idx = None, is_ans = None, starts = None, ends = None, **kwargs):
         bs,l,_ = video.shape
         video = self.project_video(video)
-        input_ = self.create_model_input(video, audio, text, lengths)
+        input_ = self.create_model_input(video, audio, text, clip_lengths, query_lengths)
         roberta_output = self.model(inputs_embeds = input_)[0]
         output = self.center_classifier(roberta_output)
 
         #output only for each video frame
-        t = text.shape[1]
-        offest = t+1
-        output = output[:,offest+1:offest+l+1,0] #1st embedding for window label
+        losses = []
+        center_idx = center_idx.to(torch.long)
+        prediction = []
+        for i in range(bs):
+            t = query_lengths[i]
+            l = clip_lengths[i]
+            predictions = output[i,t+2:t+l+2,0]
+            loss = self.loss_fn(predictions.unsqueeze(0), starts, ends, is_ans, loss_type = 'center', center_idx = center_idx[i])
+            losses.append(loss)
+            prediction.append(predictions)
+        loss = torch.stack(losses)
 
-        loss = self.loss_fn(output, loss_labels['starts'], loss_labels['ends'], loss_labels['is_ans'], loss_type = loss_labels['loss_type'], center_idx = loss_labels['center_idx'])
         return output, loss
 
     def loss(self, pred, starts, ends, is_ans, loss_type = 'joint_loss'):
@@ -57,52 +65,48 @@ class MEME_B(nn.Module):
         pad = self.tokenizer.pad_token_id
         self.special_tokens = torch.tensor([bos,sep,query,eos,pad]).to(self.device)
 
-    def get_token_types_and_position(self, video, audio, text, lengths):
+    def get_token_types_and_position(self, video, audio, text, clip_lengths, query_lengths):
         v, a, t = video.shape[1], audio.shape[1], text.shape[1]
-        # types_ = [0]*(v+1)+[1]*(a+1)+[2]*(t+1)+[2] #<bos>,<sep>video,<sep>audio,<query>query,<eos>
-        types_ = [0]*(t+1)+[1]*(v+1)+[2] #<bos>,<sep>video,<sep>audio,<query>query,<eos>
-        position = torch.tensor(range(len(types_))).to(video.device).repeat(video.shape[0],1)
-        types = torch.tensor(types_).to(video.device).repeat(video.shape[0],1)
-
-        # l_last = lengths[-1]
-        # types_last = [2]*types.shape[1]
-        # types_last_ = [0]*(t+1)+[1]*(l_last+1)+[2] #<bos>,<sep>video,<sep>audio,<query>query,<eos>
-        # types_last[:len(types_last_)] = types_last_
-        # types_last = torch.tensor(types_last).to(video.device).unsqueeze(0)
-        # types[-1] = types_last
-        #fix types of the last one
+        total_length = v + t + 3
+        types_ = [[0]*(q+1)+[1]*(c+1)+[2]*(total_length - (q+c+2)) for c,q in zip(clip_lengths,query_lengths)] #<bos>,<sep>video,<sep>audio,<query>query,<eos>
+        types = torch.tensor(types_, dtype=torch.long, device=video.device)
+        
+        position = torch.tensor(range(total_length)).to(video.device).repeat(video.shape[0],1)
 
         return types, position
 
-    def create_model_input(self, video, audio, text, lengths, modalities=None):
+    def concat_stuff(self, video, audio, text, clip_lengths, query_lengths, special_token_embeds):
+        bos = special_token_embeds[:,0,:]
+        sep = special_token_embeds[:,1,:]
+        query = special_token_embeds[:,2,:]
+        eos = special_token_embeds[:,3,:]
+        pad = special_token_embeds[:,4,:]
+
+        # concat according to lengths
+        b,v,_ = video.shape
+        t = text.shape[1]
+        input_embed = torch.zeros(b,v+t+3, self.hidden_size, device = video.device)
+        input_embed[:,0,:] = bos
+        for i in range(b):
+            input_embed[i,1:query_lengths[i]+1,:] = text[i,:query_lengths[i],:]
+            input_embed[i,query_lengths[i]+1,:] = sep[i]
+            input_embed[i,query_lengths[i]+2:query_lengths[i]+2+clip_lengths[i],:] = video[i,:clip_lengths[i],:]
+            input_embed[i,query_lengths[i]+2+clip_lengths[i],:] = eos[i]
+            input_embed[i,query_lengths[i]+2+clip_lengths[i]+1:,:] = pad[i]
+
+        return input_embed
+
+
+    def create_model_input(self, video, audio, text, clip_lengths, query_lengths):
         bs = video.shape[0]
 
         embedding_layer = self.model.embeddings
-        types, position = self.get_token_types_and_position(video, audio, text, lengths) 
+        types, position = self.get_token_types_and_position(video, audio, text, clip_lengths, query_lengths) 
         special_token_embeds = embedding_layer.word_embeddings(self.special_tokens.to(video.device)).unsqueeze(0).repeat(bs,1,1) #[bos,sep,query,eos,pad]
         token_type_embeds = embedding_layer.token_type_embeddings(types)
         position_embeds = embedding_layer.position_embeddings(position)
 
-        bos = special_token_embeds[:,0,:].unsqueeze(1)
-        sep = special_token_embeds[:,1,:].unsqueeze(1)
-        query = special_token_embeds[:,2,:].unsqueeze(1)
-        eos = special_token_embeds[:,3,:].unsqueeze(1)
-        pad = special_token_embeds[:1,4,:].unsqueeze(1)
-
-        # make same batch size
-        
-        # input_embed_a = torch.cat([bos[:-1],video[:-1],sep[:-1],audio[:-1],query[:-1],text[:-1],eos[:-1]],dim=1)
-        # input_embed_b = torch.cat([bos[-1:],video[-1:,:lengths[-1]],sep[-1:],audio[-1:,:lengths[-1]],query[-1:],text[-1:],eos[-1:]],dim=1)
-        
-        # input_embed_a = torch.cat([bos[:-1],text[:-1],sep[:-1],video[:-1],eos[:-1]],dim=1)
-        # input_embed_b = torch.cat([bos[-1:],text[-1:],sep[-1:],video[-1:,:lengths[-1]],eos[-1:]],dim=1)
-        # pad input_embed_b to input_embed_a shape
-        # pad_length = input_embed_a.shape[1]-input_embed_b.shape[1]
-        # padding = pad.repeat(1,pad_length,1)
-        # input_embed_b = torch.cat([input_embed_b,padding],dim=1)
-        # input_embed = torch.cat([input_embed_a,input_embed_b],dim=0)
-        
-        input_embed = torch.cat([bos,text,sep,video,eos],dim=1)
+        input_embed = self.concat_stuff(video, audio, text, clip_lengths, query_lengths, special_token_embeds)
         model_input = input_embed + token_type_embeds + position_embeds
 
         return model_input

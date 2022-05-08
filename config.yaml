@@ -3,7 +3,8 @@
 hidden_size: 1024
 num_epochs: 12
 learning_rate: 0.001
-batch_size: 1
+batch_size: 16
+num_workers: 0
 topk: 5 
 model: MEME_B
 clip_window: 500
