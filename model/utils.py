@@ -5,7 +5,7 @@ import numpy as np
 import torch.nn.functional as F
 
 from tokenizers import ByteLevelBPETokenizer
-from transformers import RobertaConfig, RobertaForTokenClassification, RobertaTokenizerFast
+from transformers import RobertaConfig, RobertaForQuestionAnswering, RobertaTokenizerFast
 
 QUERY_TOKEN = "<query>"
 EOS_TOKEN = "<eos>"
@@ -15,7 +15,9 @@ def init_custom_model(folder_path="output/models/model1", model_name= "meme"):
     my_config.save_pretrained(save_directory=folder_path)
     my_config = RobertaConfig.from_pretrained(f"{folder_path}/config.json")
 
-    model = RobertaForTokenClassification(my_config)
+    # model = RobertaForTokenClassification(my_config)
+
+    model = RobertaForQuestionAnswering(my_config)
 
     # Initialize a tokenizer
     tokenizer = ByteLevelBPETokenizer(lowercase=True)

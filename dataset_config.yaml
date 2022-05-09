@@ -12,8 +12,10 @@ wordEmbedding_model: roberta-large #model
 
 #filters
 number_of_sample: None
-max_frames: 750 #None
-min_frames: 5
+max_frames: None #None
+min_frames: None
+
+max_frame_length: 1000
 
 #load and save
 save_or_load: True

@@ -18,6 +18,6 @@ class MEME(nn.Module):
         else:
             self.model=MEME_BASE(args)
         
-    def forward(self, features, query_emb, audio_features, **kwargs):
-        output = self.model(features, query_emb, audio_features, **kwargs)
+    def forward(self, input_list, **kwargs):
+        output = self.model(input_list, **kwargs)
         return output

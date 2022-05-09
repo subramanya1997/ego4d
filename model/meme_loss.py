@@ -19,7 +19,8 @@ class MEME_LOSS(nn.Module):
 
         self.loss_fn = nn.BCELoss()
         self.ce_loss_fn = nn.CrossEntropyLoss()
-        self.ce_loss = nn.CrossEntropyLoss(weight = self.loss_weight,ignore_index=-100)
+        # self.ce_loss = nn.CrossEntropyLoss(weight = self.loss_weight,ignore_index=-100)
+        self.ce_loss = nn.CrossEntropyLoss()
         
         
     def forward(self, pred, target_start, target_end, target_in_range, loss_type='pos_loss'):
@@ -59,9 +60,10 @@ class MEME_LOSS(nn.Module):
             pred_scores = pred[:,:,2]
             loss = self.loss_fn(pred_scores.reshape(-1), target_in_range[:,:l].reshape(-1))
         else:
-            bs, l, c = pred.shape
+            # bs, l, c = pred.shape
             # self.loss_weight
-            loss = self.ce_loss(pred.reshape(bs*l,-1),target_in_range[:,:l].reshape(-1).to(torch.long))
+            # loss = self.ce_loss(pred.reshape(bs*l,-1),target_in_range[:,:l].reshape(-1).to(torch.long))
+            loss = self.ce_loss(pred,target_in_range)
         return loss
 
     def em_joint_loss(self, pred, target_start, target_end, target_in_range):

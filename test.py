@@ -1,18 +1,19 @@
-from utils.data_processing import Ego4d_NLQ, Modal
-
-import argparse
 from collections import defaultdict
-import os
-
 import torch
+import os
+from tqdm import tqdm
 
-# nql = Ego4d_NLQ('/scratch/shantanuagar_umass_edu/ego4d/nlq/sample/sample_nlq_train.json', modalities=[Modal._Audio, Modal._Video], split="train", save_or_load_path="/scratch/snagabhushan_umass_edu/dataset/v1/save/nlq/final_train.pkl")
-# # print(nql.query_feature_size, nql.audio_feature_size, nql.video_feature_size)
-# for i in range(nql.__len__()):
-#     sample = nql[i]
-# nql = Ego4d_NLQ('/scratch/shantanuagar_umass_edu/ego4d/nlq/sample/sample_nlq_val.json', modalities=[Modal._Audio, Modal._Video], split="val", save_or_load_path="/scratch/snagabhushan_umass_edu/dataset/v1/save/nlq/final_val.pkl")
-# for i in range(nql.__len__()):
-#     sample = nql[i]
-# nql = Ego4d_NLQ('/scratch/shantanuagar_umass_edu/ego4d/nlq/sample/sample_nlq_test.json', modalities=[Modal._Audio, Modal._Video], split="test", save_or_load_path="/scratch/snagabhushan_umass_edu/dataset/v1/save/nlq/final_test.pkl")
-# for i in range(nql.__len__()):
-#     sample = nql[i]
+paths = defaultdict(str)
+for root, dirs, files in os.walk("/work/snagabhushan_umass_edu/dataset/v1/clip_features/"):
+    for file in files:
+        if file.endswith(".pt"):
+            paths[file.split('.')[0]] = os.path.join(root, file)
+avg_length = 0
+count = 0
+for i, path in tqdm(paths.items()):
+    load_pt = torch.load(path)
+    avg_length += load_pt.shape[0]
+    if load_pt.shape[0] < 1000:
+        count += 1
+
+print(avg_length/len(paths), count)

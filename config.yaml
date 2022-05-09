@@ -1,7 +1,7 @@
 # Model Params
 ## Hyperparams
 hidden_size: 768
-num_epochs: 12
+num_epochs: 80
 learning_rate: 0.001
 batch_size: 1
 topk: 5 
@@ -10,6 +10,7 @@ clip_window: 1000
 dropout: 0.1
 loss_weight: 0.2422 #for trimmed training input
 # loss_weight: 0.9713 #for full video training input
+input_batch_size: 8
 
 ## others
 force_cpu: false
@@ -18,16 +19,20 @@ boundary_smoothing: 9 #smooth over 10 features # not needed anymore
 
 ## data stuff
 update_dataloader: False
-# dataloader_cache_path: /work/snagabhushan_umass_edu/dataset/v1/save/nlq
-dataloader_cache_path: /work/shantanuagar_umass_edu/ego4d/nlq/dataset/roberta_large
+dataloader_cache_path: /work/snagabhushan_umass_edu/dataset/v1/save/long_frames
+#dataloader_cache_path: /work/shantanuagar_umass_edu/ego4d/nlq/dataset/roberta_large
 dataloader_config: ./dataset_config.yaml
-model_save_path: /work/shantanuagar_umass_edu/ego4d/model/nlq/
+model_save_path: /work/snagabhushan_umass_edu/ego4D_multi/save/model/
 # checkpoint_path: None
+preTrained: False
 
 # Video Preprocessing Parameters
-input_train_split: /work/shantanuagar_umass_edu/ego4d/nlq/sample/sample_nlq_train.json
-input_val_split: /work/shantanuagar_umass_edu/ego4d/nlq/sample/sample_nlq_val.json
-input_test_split: /work/shantanuagar_umass_edu/ego4d/nlq/sample/sample_nlq_test.json
+# input_train_split: /work/shantanuagar_umass_edu/ego4d/nlq/sample/sample_nlq_train.json
+# input_val_split: /work/shantanuagar_umass_edu/ego4d/nlq/sample/sample_nlq_val.json
+# input_test_split: /work/shantanuagar_umass_edu/ego4d/nlq/sample/sample_nlq_test.json
+input_train_split: /work/snagabhushan_umass_edu/dataset/v1/annotations/nlq_train.json
+input_val_split: /work/snagabhushan_umass_edu/dataset/v1/annotations/nlq_val.json
+input_test_split: /work/snagabhushan_umass_edu/dataset/v1/annotations/nlq_test.json
 video_feature_read_path: data/video_features/
 clip_feature_save_path: data/saved_clip_features/ # save path for output clip features
 output_save_path: data/nlq_official_v1 # save path for clip info along with train-val split
