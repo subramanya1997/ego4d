@@ -1,4 +1,0 @@
-#!/bin/bash
-python clip_feature_extraction.py --annotations_path /scratch/shantanuagar_umass_edu/ego4d/nlq/sample/sample_nlq_test.json --input_video_feature_directory /scratch/shantanuagar_umass_edu/ego4d/v1/slowfast8x8_r101_k400/ --clip_feature_save_directory /scratch/shantanuagar_umass_edu/ego4d/saved_clip_features/
-python clip_feature_extraction.py --annotations_path /scratch/shantanuagar_umass_edu/ego4d/nlq/sample/sample_nlq_train.json --input_video_feature_directory /scratch/shantanuagar_umass_edu/ego4d/v1/slowfast8x8_r101_k400/ --clip_feature_save_directory /scratch/shantanuagar_umass_edu/ego4d/saved_clip_features/
-python clip_feature_extraction.py --annotations_path /scratch/shantanuagar_umass_edu/ego4d/nlq/sample/sample_nlq_val.json --input_video_feature_directory /scratch/shantanuagar_umass_edu/ego4d/v1/slowfast8x8_r101_k400/ --clip_feature_save_directory /scratch/shantanuagar_umass_edu/ego4d/saved_clip_features/

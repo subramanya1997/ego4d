@@ -117,6 +117,7 @@ def get_dataloader(args):
     args.video_feature_size = train_nlq.video_feature_size if train_nlq.video_feature_size is not None else 0
     args.query_feature_size = train_nlq.query_feature_size if train_nlq.query_feature_size is not None else 0
     args.audio_feature_size = train_nlq.audio_feature_size if train_nlq.audio_feature_size is not None else 0
+    args.video_query_feature_size = args.video_feature_size + args.query_feature_size
     test_nlq, test_loader = None, None
     print("Finished loading data")
     return args, train_loader, val_loader, test_loader, val_nlq, test_nlq
@@ -154,8 +155,8 @@ def process_model_inputs(data, args):
     audio_features = audio_features.to(args.device)
     query_emb = query_features.to(args.device)
 
-    answer['start'] = torch.tensor(answer['start'], dtype=torch.long).to(args.device)
-    answer['end'] = torch.tensor(answer['end'], dtype=torch.long).to(args.device)
+    # answer['start'] = torch.tensor(answer['start'], dtype=torch.long).to(args.device)
+    # answer['end'] = torch.tensor(answer['end'], dtype=torch.long).to(args.device)
 
     # starts = starts.to(args.device)
     # ends = ends.to(args.device)
@@ -172,8 +173,19 @@ def process_model_inputs(data, args):
     # is_ans, _ = make_windows(is_ans,args.clip_window,-100)
 
     lens = info["Frame length"]
-    info["video_text_length"] = clip_features.shape[1] + query_emb.shape[1]
+    segments_length = ((clip_features.shape[1] // args.segment_size) if (clip_features.shape[1] % args.segment_size == 0) else  (clip_features.shape[1] // args.segment_size) + 1)
+    info["video_text_length"] = clip_features.shape[1] + query_emb.shape[1] + segments_length
+    
+    ans = torch.zeros(segments_length, 2).to(args.device)
+    s_t = answer['start'] // args.segment_size
+    e_t = answer['end'] // args.segment_size
+    for i in range(segments_length):
+        if i >= s_t and i <= e_t:
+            ans[i][1] = 1
+        else:
+            ans[i][0] = 1
 
+    answer['answer'] = ans
     return sample_id, clip_id, clip_features, audio_features, query_emb, answer, info, lens
 
 def get_modalities(args):
@@ -181,6 +193,26 @@ def get_modalities(args):
     if args.audio:
         modals.append(Modal._Audio)
     return modals
+
+def get_preds(start, end, answer, args):
+
+    softmax = torch.nn.Softmax(dim=-1)
+    start = softmax(start)
+    end = softmax(end)
+
+    start_index = torch.argmax(start, dim=0)
+    end_index = torch.argmax(end, dim=0)
+
+    pred = torch.zeros_like(start).to(args.device)
+    if(end_index > start_index):
+        indexs = torch.arange(start_index.detach().cpu().item(), end_index.detach().cpu().item()).long()
+        pred[indexs] = 1
+
+    target = torch.zeros_like(start)
+    indexs = torch.arange(answer['start'].detach().item(), answer['end'].detach().item()).long()
+    target[indexs] = 1
+
+    return pred, target
 
 def train(model, dataloader, model_loss, optimizer, args, writer, epoch):
     model.train()
@@ -198,18 +230,27 @@ def train(model, dataloader, model_loss, optimizer, args, writer, epoch):
         sample_id, clip_id, clip_features, audio_features, query_emb, answer, info, lens = process_model_inputs(data, args)
         data_arr.append( (sample_id, clip_id, clip_features, audio_features, query_emb, answer, info, lens) )
         if (iter + 1) % args.input_batch_size == 0 or (iter + 1) == len(dataloader):
-            # pred = model( input_list = data_arr,  modalities = get_modalities(args))
-            start, end = model( input_list = data_arr,  modalities = get_modalities(args))
+            pred = model( input_list = data_arr,  modalities = get_modalities(args))
+            # start, end = model( input_list = data_arr,  modalities = get_modalities(args))
             
             loss = torch.tensor([0.0], requires_grad=True).to(args.device)
             for i, data_ in enumerate(data_arr):
                 _, _, _, _, _, answer, info, _ = data_
-                start_pred = start[i,1:info['Frame length']+1]
-                end_pred = end[i,1:info['Frame length']+1]
+                # start_pred = start[i,1:info['Frame length']+1]
+                # end_pred = end[i,1:info['Frame length']+1]
+
+                # pred, target = get_preds(start_pred, end_pred, answer, args)
                 
-                start_loss = model_loss(start_pred, None, None, answer['start'], loss_type = args.loss_type)
-                end_loss  = model_loss(end_pred, None, None, answer['end'], loss_type = args.loss_type)
-                loss = loss + ((start_loss + end_loss) / 2)
+                # start_loss = model_loss(start_pred, None, None, answer['start'], loss_type = args.loss_type)
+                # end_loss  = model_loss(end_pred, None, None, answer['end'], loss_type = args.loss_type)
+                
+                # pos_loss =  ((start_loss + end_loss) / 2)
+                # focal_loss = model_loss(pred, None, None, target, loss_type = "Focal_loss")
+                # ioU_loss = model_loss(pred, None, None, target, loss_type = "IoU_loss")
+                
+                # loss = loss + ( (0.25 * pos_loss) + (0.5 * focal_loss) + (0.25 * ioU_loss))
+
+                loss = loss + model_loss(pred[i], None, None, answer['answer'], loss_type = args.loss_type)
             
             #average batch loss
             loss = loss / args.input_batch_size
@@ -259,28 +300,44 @@ def test_model(model, dataloader, model_loss, args, writer, epoch, Test = False)
 
         if (iter + 1) % args.input_batch_size == 0 or (iter + 1) == len(dataloader):
             with torch.no_grad():
-                start, end = model( input_list = data_arr,  modalities = get_modalities(args))
+                pred = model( input_list = data_arr,  modalities = get_modalities(args))
+                # start, end = model( input_list = data_arr,  modalities = get_modalities(args))
 
             loss = torch.tensor([0.0], requires_grad=True).to(args.device)
             for i, data_ in enumerate(data_arr):
                 sample_id_, clip_id_, _, _, _, answer, info, _ = data_
-                start_pred = start[i,1:info['Frame length']+1]
-                end_pred = end[i,1:info['Frame length']+1]
+                # start_pred = start[i,1:info['Frame length']+1]
+                # end_pred = end[i,1:info['Frame length']+1]
+
+                # pred, target = get_preds(start_pred, end_pred, answer, args)
                 
-                start_loss = model_loss(start_pred, None, None, answer['start'], loss_type = args.loss_type)
-                end_loss  = model_loss(end_pred, None, None, answer['end'], loss_type = args.loss_type)
-                loss = loss + ((start_loss + end_loss) / 2)
+                # start_loss = model_loss(start_pred, None, None, answer['start'], loss_type = args.loss_type)
+                # end_loss  = model_loss(end_pred, None, None, answer['end'], loss_type = args.loss_type)
+                
+                # pos_loss =  ((start_loss + end_loss) / 2)
+                # focal_loss = model_loss(pred, None, None, target, loss_type = "Focal_loss")
+                # ioU_loss = model_loss(pred, None, None, target, loss_type = "IoU_loss")
+                
+                # loss = loss + ( (0.25 * pos_loss) + (0.5 * focal_loss) + (0.25 * ioU_loss))
+
+                loss = loss + model_loss(pred[i], None, None, answer['answer'], loss_type = args.loss_type)
 
                 # inference
-                s, e, scores = decode_candidate_clips(qa_pipeline, start_pred, end_pred, topk = args.topk, max_len = 50)
+                # s, e, scores = decode_candidate_clips(qa_pipeline, start_pred, end_pred, topk = args.topk, max_len = 50)
                 # precision.append(calc_precision(pred, is_ans))
+                # records.append({"sample_id": int(sample_id_), 
+                #         "clip_id": str(clip_id_),
+                #         "start": list([int(x) for x in s]), 
+                #         "end": list([int(x) for x in e]), 
+                #         "score": list([float(x) for x in scores]),
+                #         "GT_starts": answer['start'].cpu().item(),
+                #         "GT_ends": answer['end'].cpu().item(),
+                #         "Loss": float(loss.cpu().item())})
+
                 records.append({"sample_id": int(sample_id_), 
                         "clip_id": str(clip_id_),
-                        "start": list([int(x) for x in s]), 
-                        "end": list([int(x) for x in e]), 
-                        "score": list([float(x) for x in scores]),
-                        "GT_starts": answer['start'].cpu().item(),
-                        "GT_ends": answer['end'].cpu().item(),
+                        "Pred": pred[i].cpu().data.numpy().tolist(),
+                        "GT": answer['answer'].cpu().data.numpy().tolist(),
                         "Loss": float(loss.cpu().item())})
                 
             #average batch loss
@@ -331,16 +388,17 @@ def cache_records_and_evaluate(records, epoch, n_iter, args, nlq_data, writer, t
     sys.stdout.flush()
     
     # gt_file = args.input_val_split if not test else args.input_test_split
-    gt_file = args.input_val_split if not test else args.input_test_split
-    _, mIoU, score_str, metric_dict = evaluate_predicted_records(records, epoch, gt_file, nlq_data)
-    for metric, value in metric_dict.items():
-        split = "val" if not test else "test"
-        # writer.add_scalar(f"{metric}/{split}", value, epoch)
-        wandb.log({f"{split}/{metric}": value})
-        # wandb.run.summary[f"{metric}/{split}"] = value
+    # gt_file = args.input_val_split if not test else args.input_test_split
+    # _, mIoU, score_str, metric_dict = evaluate_predicted_records(records, epoch, gt_file, nlq_data)
+    # for metric, value in metric_dict.items():
+    #     split = "val" if not test else "test"
+    #     # writer.add_scalar(f"{metric}/{split}", value, epoch)
+    #     wandb.log({f"{split}/{metric}": value})
+    #     # wandb.run.summary[f"{metric}/{split}"] = value
     
     # print(score_str)
-    return mIoU
+    # return mIoU
+    return None
 
 
 if __name__ == "__main__":
@@ -365,9 +423,9 @@ if __name__ == "__main__":
         val_loss, records = test_model(model, val_loader, model_loss, args, writer, epoch)
         val_mIoU = cache_records_and_evaluate(records, epoch, epoch * len(val_loader),args, val_nlq, writer)
 
-        if val_mIoU > best_mIoU:
-            best_mIoU = val_mIoU
-            save_checkpoint(model, optimizer, epoch, val_loss, best_mIoU, args.best_model_path)
+        # if val_mIoU > best_mIoU:
+        #     best_mIoU = val_mIoU
+        #     save_checkpoint(model, optimizer, epoch, val_loss, best_mIoU, args.best_model_path)
 
         save_checkpoint(model, optimizer, epoch, val_loss, best_mIoU, args.last_model_path)
 

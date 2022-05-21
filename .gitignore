@@ -130,3 +130,6 @@ sbatch/
 # VS Code debugger
 .vscode
 cache/
+
+checkpoints
+datasets

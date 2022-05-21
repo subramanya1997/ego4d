@@ -1,336 +1,118 @@
-import os
-import sys
-import json
-import yaml
+"""Main script to train/test models for Ego4D NLQ dataset.
+"""
 import argparse
-
-import torch
-import wandb
+import os
 
 import numpy as np
-
-from torch.utils.tensorboard import SummaryWriter
-from torch.optim import SGD, Adam
+import options
+import torch
+import torch.nn as nn
+from model.MEME import build_optimizer_and_scheduler, MEME
 from tqdm import tqdm
-from transformers import pipeline
+from exputils.data_gen import gen_or_load_dataset
+from exputils.data_loader import get_test_loader, get_train_loader
+from exputils.data_util import load_json, load_video_features, save_json
+from exputils.runner_utils import (
+    convert_length_to_mask,
+    eval_test,
+    filter_checkpoints,
+    get_last_checkpoint,
+    set_th_config,
+)
 
-from model.meme import MEME
-from model.meme_loss import MEME_LOSS
-from model.utils import fix_seed, make_windows
-from utils.metrics import decode_candidate_clips, get_best_segment, get_best_scoring_segment, get_best_segment_improved
-from utils.evaluate_records import evaluate_predicted_records
-from utils.data_processing import Ego4d_NLQ, get_train_loader, get_test_loader, Modal
+def main(configs, parser):
+    # set tensorflow configs
+    set_th_config(configs.seed)
 
-ISSUE_CIDS = {}
+    # prepare or load dataset
+    dataset = gen_or_load_dataset(configs)
+    configs.char_size = dataset.get("n_chars", -1)
+    configs.word_size = dataset.get("n_words", -1)
 
-'''
-https://stackoverflow.com/a/31347222/4706073
-'''
-def add_bool_arg(parser, name, default=False):
-    group = parser.add_mutually_exclusive_group(required=False)
-    group.add_argument('--' + name, dest=name, action='store_true')
-    group.add_argument('--no-' + name, dest=name, action='store_false')
-    parser.set_defaults(**{name:default})
-
-def parse_arguments():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "-c", "--config-file", help="Config File with all the parameters", default='config.yaml'
+    # get train and test loader
+    visual_features = load_video_features(
+        os.path.join("/work/snagabhushan_umass_edu/dataset/", configs.task, configs.fv), configs.max_pos_len
     )
-    parser.add_argument("--max-len", help="maximum length of answer clip", type=int, default=None)
-    parser.add_argument("--force-cpu", help="enforce cpu computation", type=int, default=None)
-    parser.add_argument("-r", "--record-path", help="path for saving records", type=str, default='output/records/')
-    parser.add_argument("-p", "--prefix", help="prefix for this run", type=str, default='meme')
-    parser.add_argument("-l", "--loss-type", help="loss type to use", type=str, default='pos_loss')
-    parser.add_argument("-lr", "--learning_rate", help="learning rate", type=float, default=0.001)
-    parser.add_argument("-w", "--wandb-name", \
-                        help="wandb name for this run, defaults to random names by wandb",\
-                        type=str, default=None)
-    parser.add_argument("--model-save-path", help="path of the directory with model checkpoint", type=str, default=None)
-    parser.add_argument("--load-path", help="path of the directory with model checkpoint that you want to load", type=str, default=None)
-    parser.add_argument("--loss_weight", help="loss weight", type=float, default=0.25)
-    parser.add_argument("--loss_weight2", help="loss weight", type=float, default=0.25)
-    add_bool_arg(parser, 'resume', default=False)
-    add_bool_arg(parser, 'audio', default=True)
-    try:
-        parsed_args = parser.parse_args()
-    except (IOError) as msg:
-        parser.error(str(msg))
+    # If video agnostic, randomize the video features.
+    if configs.video_agnostic:
+        visual_features = {
+            key: np.random.rand(*val.shape) for key, val in visual_features.items()
+        }
+    train_loader = get_train_loader(
+        dataset=dataset["train_set"], video_features=visual_features, configs=configs
+    )
+    train_eval_loader = get_test_loader(
+        dataset=dataset["train_set"], video_features=visual_features, configs=configs
+    )
+    val_loader = (
+        None
+        if dataset["val_set"] is None
+        else get_test_loader(dataset["val_set"], visual_features, configs)
+    )
+    test_loader = get_test_loader(
+        dataset=dataset["test_set"], video_features=visual_features, configs=configs
+    )
+    configs.num_train_steps = len(train_loader) * configs.epochs
+    num_train_batches = len(train_loader)
+    num_val_batches = 0 if val_loader is None else len(val_loader)
+    num_test_batches = len(test_loader)
 
-    
-    # Read config yamls file
-    config_file = parsed_args.config_file
-    with open(config_file, "r") as f:
-        config = yaml.safe_load(f)
-    for key, value in config.items():
-        if key not in parsed_args.__dict__ or parsed_args.__dict__[key] is None:
-            parsed_args.__dict__[key] = value
-    
-    # set best checkpoint and last checkpoint paths
-    if parsed_args.model_save_path is None:
-        parsed_args.model_save_path = "./output/models/"
-    parsed_args.best_model_path = os.path.join(parsed_args.model_save_path, f"{parsed_args.prefix}_{parsed_args.wandb_name}_best.pth")
-    parsed_args.last_model_path = os.path.join(parsed_args.model_save_path, f"{parsed_args.prefix}_{parsed_args.wandb_name}_last.pth")
+    # Device configuration
+    cuda_str = "cuda" if configs.gpu_idx is None else "cuda:{}".format(configs.gpu_idx)
+    device = torch.device(cuda_str if torch.cuda.is_available() else "cpu")
 
-    if parsed_args.load_path is None:
-        parsed_args.load_path = parsed_args.last_model_path
+    for idx, (records, vfeats, vfeat_lens, word_ids, char_ids) in tqdm(
+            enumerate(val_loader),
+            total=len(val_loader),
+            desc="evaluate {}".format("val"),
+        ):
 
-    if not parsed_args.force_cpu:
-        parsed_args.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        print(vfeats.shape, vfeat_lens.shape, [ (i['sample_id'], i['vid'], i['s_ind'], i['e_ind'], i['s_time'], i['e_time']) for i in records])
+        break
 
-    print("Parsed Arguments are - ", parsed_args)
+    # create model dir
+    home_dir = os.path.join(
+        configs.model_dir,
+        "_".join(
+            [
+                configs.model_name,
+                configs.task,
+                configs.fv,
+                str(configs.max_pos_len),
+                configs.predictor,
+            ]
+        ),
+    )
+    if configs.suffix is not None:
+        home_dir = home_dir + "_" + configs.suffix
+    model_dir = os.path.join(f'{home_dir}_test2', "model")
 
-    return parsed_args
+    if not os.path.exists(model_dir):
+        raise ValueError("No pre-trained weights exist")
+    # load previous configs
+    pre_configs = load_json(os.path.join(model_dir, "configs.json"))
+    parser.set_defaults(**pre_configs)
+    configs = parser.parse_args()
+    # build model
+    model = MEME(
+            configs=configs, word_vectors=dataset.get("word_vector", None)
+        ).to(device)
 
-def save_checkpoint(model, optimizer, epoch, loss, mIoU, path):
-    torch.save({ # Save our checkpoint loc
-            'epoch': epoch,
-            'model_state_dict': model.state_dict(),
-            'optimizer_state_dict': optimizer.state_dict(),
-            'loss': loss,
-            'mIoU': mIoU
-            }, path)
-    # wandb.save(path)
-
-def load_checkpoint(model, optimizer, path):
-    # wandb.restore(path)
-    checkpoint = torch.load(path,map_location=torch.device('cpu'))
-    model.load_state_dict(checkpoint['model_state_dict'])
-    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    epoch = checkpoint['epoch']
-    loss = checkpoint['loss']
-    mIoU = checkpoint['mIoU']
-    print(f"Loaded checkpoint from {path}")
-    return model, optimizer, epoch, loss, mIoU
-
-def get_dataloader(args):
-    print("Loading data")
-    train_nlq = Ego4d_NLQ(args.input_train_split, modalities=None, split="train", save_or_load_path=f"{args.dataloader_cache_path}/final_train.pkl", config_file = args.dataloader_config)
-    val_nlq = Ego4d_NLQ(args.input_val_split, modalities=None, split="val", save_or_load_path=f"{args.dataloader_cache_path}/final_val.pkl", config_file = args.dataloader_config)
-    test_nlq = Ego4d_NLQ(args.input_test_split, modalities=None, split="test", save_or_load_path=f"{args.dataloader_cache_path}/final_test.pkl", config_file = args.dataloader_config)
-
-    train_loader = get_train_loader(train_nlq, batch_size=1)
-    val_loader = get_test_loader(val_nlq, batch_size=1)
-    test_loader = get_test_loader(test_nlq, batch_size=1)
-
-    args.video_feature_size = train_nlq.video_feature_size if train_nlq.video_feature_size is not None else 0
-    args.query_feature_size = train_nlq.query_feature_size if train_nlq.query_feature_size is not None else 0
-    args.audio_feature_size = train_nlq.audio_feature_size if train_nlq.audio_feature_size is not None else 0
-
-    print("Finished loading data")
-    return args, train_loader, val_loader, test_loader, val_nlq, test_nlq
-
-def init_model(args):
-    print("Initializing model")
-    model = MEME(args)
-    model.to(args.device)
-
-    model_loss = MEME_LOSS(args)
-    model_loss.to(args.device)
-
-    optimizer = SGD(model.parameters(), lr=args.learning_rate)
-    #scheduler = ConstantLR(optimizer, factor=0.95,total_iters=args.num_epochs*args.num_batches)
-    print("Finished initializing model")
-
-    return model, model_loss, optimizer
-
-def infer_from_model(pred, topk, qa_pipeline):
-    # start = pred[:, 0].cpu().numpy()
-    # end = pred[:, 1].cpu().numpy()
-    # max_len = args.max_len
-    # s, e, scores = decode_candidate_clips(qa_pipeline, start, end, topk, max_len)
-    # pred_p = torch.nn.functional.softmax(pred, dim=-1)
-    # s, e, scores = get_best_segment(pred_p[:,:,-1].cpu().numpy(), topk)
-    pred_p = torch.nn.functional.softmax(pred, dim=-1)
-    s, e, scores = get_best_segment_improved(pred_p.cpu().numpy(), topk)
-    # pred_p = torch.nn.functional.softmax(pred, dim=-1)
-    # s, e, scores = get_best_scoring_segment(pred_p.cpu().numpy(), topk)
-    return s, e, scores
-
-def process_model_inputs(data, args,windows=False):
-    (_, clip_id, features, audio_features, query_emb, starts, ends, is_ans, _) = data
-    # process_modality_features
-    features = features.to(args.device)
-    audio_features = audio_features.to(args.device)
-    query_emb = query_emb.to(args.device)
-    starts = starts.to(args.device)
-    ends = ends.to(args.device)
-    is_ans = is_ans.to(args.device)
-
-    if torch.sum(ends)==0:
-        ends[-1][-1] = 1.0
-
-    lens = [features.shape[1]]
-    
-    if windows:
-        features, lens = make_windows(features,args.clip_window)
-        audio_features, _ = make_windows(audio_features,args.clip_window)
-        query_emb, _ = make_windows(query_emb,args.clip_window)
-        starts, _ = make_windows(starts,args.clip_window,-100)
-        ends, _ = make_windows(ends,args.clip_window,-100)
-        is_ans, _ = make_windows(is_ans,args.clip_window,-100)
-
-    return features, audio_features, query_emb, starts, ends, is_ans, lens
-
-def get_modalities(args):
-    modals = [Modal._Video,Modal._Transcript]
-    if args.audio:
-        modals.append(Modal._Audio)
-    return modals
-
-def train(model, dataloader, model_loss, optimizer, args, writer, epoch):
-    model.train()
-    tqdm_obj = tqdm(
-                dataloader,
-                total=len(dataloader),
-                desc="Epoch %3d / %3d" % (epoch + 1, args.num_epochs),
-            )
-    iter = 0
-    total_loss = 0
-    issue_cids = []
-    for data in tqdm_obj:
-        (_, clip_id, features, audio_features, query_emb, starts, ends, is_ans, _) = data
-        features, audio_features, query_emb, starts, ends, is_ans, lens = process_model_inputs(data, args)
-    
-        pred = model(features, query_emb, audio_features, modalities = get_modalities(args), lengths = lens)
-        loss = model_loss(pred, starts, ends, is_ans, loss_type = args.loss_type)
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-        #scheduler.step()
-
-        # Logging
-        total_loss += loss.detach().cpu().item()
-        n_iter = epoch * len(dataloader) + iter
-        # if n_iter % args.log_interval == 0:
-        writer.add_scalar('Loss/train', loss.detach().cpu().item(), n_iter)
-        wandb.log({"batch loss/train": loss.detach().cpu().item()})
-        iter += 1
-
-        # end train loop
-    wandb.log({f"loss/train": total_loss})
-
-    if epoch==0:
-        ISSUE_CIDS['train'] = issue_cids
-    return total_loss
-
-def calc_precision(pred, is_ans):
-    pred = pred.cpu().numpy()
-    _,l,_ = pred.shape
-    pred_ = np.argmax(pred,axis=2)
-    is_ans = is_ans.cpu().numpy()[:,:l]
-    return np.sum(pred_*is_ans)/np.sum(pred_)
-
-def test_model(model, dataloader, model_loss, args, writer, epoch, Test = False):
+    # get last checkpoint file
+    filename = get_last_checkpoint(model_dir, suffix="t7")
+    model.load_state_dict(torch.load(filename))
     model.eval()
-    qa_pipeline = None # pipeline("question-answering")
-    tqdm_obj = tqdm(
-                dataloader,
-                total=len(dataloader),
-                desc="Epoch %3d / %3d" % (epoch + 1, args.num_epochs),
-            )
-    iter = 0
-    total_loss = 0
-    records = []
-    precision = []
-    for i, data in enumerate(tqdm_obj):
-        (sample_id, clip_id, features, audio_features, query_emb, starts, ends, is_ans, _) = data
-        _, len_vid, _ = features.shape
-        features, audio_features, query_emb, starts, ends, is_ans, lens = process_model_inputs(data, args)
-
-        with torch.no_grad():
-            pred = model(features, query_emb, audio_features, modalities = get_modalities(args), lengths = lens)
-            loss = model_loss(pred, starts, ends, is_ans)
-            
-        # infer
-        _,_,d = pred.shape
-        pred_ = pred.reshape(1, -1, d)
-        #print(pred.shape,pred_.shape)
-        s, e, scores = infer_from_model(pred_, args.topk, qa_pipeline)
-        if s==[]:
-            s, e = [0], [len_vid-1]
-        # print(sample_id, clip_id, torch.sum(ends))
-        end_idx = ends.shape[-1]-1 if torch.sum(ends) == 0 else np.where(ends.cpu().numpy() == 1)[-1][0]
-        precision.append(calc_precision(pred, is_ans))
-        records.append({"sample_id": int(sample_id[0]), 
-                        "clip_id": str(clip_id[0]),
-                        "start": list([int(x) for x in s]), 
-                        "end": list([int(x) for x in e]), 
-                        "score": list([float(x) for x in scores]),
-                        "GT_starts": int(np.where(starts.cpu().numpy() == 1)[-1][0]),
-                        "GT_ends": int(end_idx),
-                        "Loss": float(loss.cpu().item())})
-
-        # Logging
-        total_loss += loss.cpu().item()
-        n_iter = epoch * len(dataloader) + iter
-        split = "test" if Test else "val"
-        writer.add_scalar(f'Loss/{split}', loss.cpu().item(), n_iter)
-        wandb.log({f"batch loss/{split}": loss.cpu().item()})
-
-        iter += 1
-
-        # end val loop
-    split = "Test" if Test else "Val"
-    wandb.log({f"loss/{split}": total_loss})
-    mean_avg_p = np.mean(precision)
-    split = "test" if Test else "val"
-    wandb.log({f"{split}/MAP": mean_avg_p})
-
-    return total_loss, records
-
-def initialise_wandb(args,model):
-    wandb.init(project=f"ego4d_{args.prefix}", entity="ego4d-meme", config={
-        "learning_rate": args.learning_rate,
-        "batch_size": args.batch_size,
-        "num_epochs": args.num_epochs,
-        "hidden_size": args.hidden_size,
-        "dropout": args.dropout,
-        "loss_weight": args.loss_weight,
-    },resume = args.resume,settings=wandb.Settings(start_method="fork"))
-    if args.wandb_name is not None:
-        wandb.run.name = args.wandb_name
-        wandb.run.save()
-
-    wandb.watch(model)
-
-def cache_records_and_evaluate(records, epoch, n_iter, args, nlq_data, writer, test=False):
-    if not os.path.exists(args.record_path):
-        os.makedirs(args.record_path)
-    folder_name = f"{args.prefix}_{args.wandb_name}" if args.wandb_name is not None else args.prefix
-    if not os.path.exists(os.path.join(args.record_path, folder_name)):
-        os.makedirs(os.path.join(args.record_path, folder_name))
-    file_name = f"{folder_name}/records_{epoch}.json" if not test else f"{folder_name}/records_test_{epoch}.json"
-    with open(os.path.join(args.record_path, file_name), "w") as f:
-        json.dump(records, f, indent=4)
-    sys.stdout.flush()
-    
-    # gt_file = args.input_val_split if not test else args.input_test_split
-    gt_file = args.input_val_split if not test else args.input_test_split
-    _, mIoU, score_str, metric_dict = evaluate_predicted_records(records, epoch, gt_file, nlq_data)
-    
-    print(score_str)
-    sys.stdout.flush()
-
-    return mIoU
-
+    result_save_path = filename.replace(".t7", "_test_result.json")
+    results, mIoU, score_str = eval_test(
+        model=model,
+        data_loader=val_loader,
+        device=device,
+        mode="test",
+        gt_json_path=configs.eval_gt_json,
+        result_save_path=result_save_path,
+    )
+    print(results, mIoU, score_str)
 
 if __name__ == "__main__":
-    # fix_seed(42)
-    args = parse_arguments()
-    args, train_loader, val_loader, test_loader, val_nlq, test_nlq = get_dataloader(args)
-    args.embedding_dim = args.video_feature_size + args.query_feature_size 
-    if args.audio:
-        args.embedding_dim += args.audio_feature_size
-
-    model, model_loss, optimizer = init_model(args)
-    initialise_wandb(args,model)
-    writer = SummaryWriter()
-    best_mIoU = 0
-    start_epoch = 0
-
-    model, optimizer, start_epoch, loss, best_mIoU = load_checkpoint(model, optimizer, "/work/shantanuagar_umass_edu/ego4d/model/nlq/meme_long_train_input_last.pth")
-
-    epoch = 0
-    val_loss, records = test_model(model, val_loader, model_loss, args, writer, epoch)
-    val_mIoU = cache_records_and_evaluate(records, epoch, epoch * len(val_loader),args, val_nlq, writer)
+    configs, parser = options.read_command_line()
+    main(configs, parser)
