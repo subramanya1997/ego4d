@@ -68,6 +68,7 @@ def visual_feature_sampling(visual_feature, max_num_clips):
     if num_clips <= max_num_clips:
         return visual_feature
     idxs = np.arange(0, max_num_clips + 1, 1.0) / max_num_clips * num_clips
+    
     idxs = np.round(idxs).astype(np.int32)
     idxs[idxs > num_clips - 1] = num_clips - 1
     new_visual_feature = []

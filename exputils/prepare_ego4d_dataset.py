@@ -88,7 +88,7 @@ def convert_ego4d_dataset(args):
     """Convert the Ego4D dataset for VSLNet."""
     # Reformat the splits to train vslnet.
     all_clip_video_map = {}
-    for split in ("train", "val"):
+    for split in ("train", "val", "test"):
         read_path = args[f"input_{split}_split"]
         print(f"Reading [{split}]: {read_path}")
         with open(read_path, "r") as file_id:
@@ -110,9 +110,6 @@ def convert_ego4d_dataset(args):
     progress_bar = tqdm.tqdm(all_clip_video_map.items(), desc="Extracting features")
     for clip_uid, (video_uid, start_sec, end_sec) in progress_bar:
         feature_path = os.path.join(args["video_feature_read_path"], f"{video_uid}.pt")
-        if not os.path.exists(feature_path):
-            print(feature_path)
-            continue
         feature = torch.load(feature_path)
 
         # Get the lower frame (start_sec) and upper frame (end_sec) for the clip.
@@ -156,5 +153,6 @@ if __name__ == "__main__":
         parsed_args = vars(parser.parse_args())
     except (IOError) as msg:
         parser.error(str(msg))
-
+    
     convert_ego4d_dataset(parsed_args)
+    print("Done!")

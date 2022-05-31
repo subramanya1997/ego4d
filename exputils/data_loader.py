@@ -13,8 +13,21 @@ class Dataset(torch.utils.data.Dataset):
 
     def __getitem__(self, index):
         record = self.dataset[index]
+        
         video_feature = self.video_features[record["vid"]]
-        s_ind, e_ind = int(record["s_ind"]), int(record["e_ind"])
+        s_idx, e_idx = record["start_idx"], record["end_idx"]
+        # s_ind, e_ind = int(record["s_ind"]), int(record["e_ind"])
+
+        video_feature = video_feature[s_idx:e_idx]
+
+        s_ind, e_ind = int(record["s_idx"]), int(record["e_idx"])
+        s_ind, e_ind = max(0, min(s_ind - s_idx, video_feature.shape[0]-1)), min(e_ind - s_idx, video_feature.shape[0]-1)
+        record["s_u_idx"] = s_ind
+        record["e_u_idx"] = e_ind
+        
+        
+        #print(s_ind, e_ind)
+
         word_ids = record["w_ids"]
         char_ids = record.get("c_ids", None)
         return record, video_feature, word_ids, char_ids, s_ind, e_ind
@@ -26,7 +39,6 @@ class Dataset(torch.utils.data.Dataset):
 def train_collate_fn(data):
     records, video_features, word_ids, char_ids, s_inds, e_inds = zip(*data)
     # If BERT is used, pad individual components of the dictionary.
-    
     if not isinstance(word_ids[0], list):
         pad_input_ids, _ = pad_seq([ii["input_ids"] for ii in word_ids])
         pad_attention_mask, _ = pad_seq([ii["attention_mask"] for ii in word_ids])

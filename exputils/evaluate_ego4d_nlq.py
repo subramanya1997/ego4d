@@ -84,12 +84,18 @@ def evaluate_nlq_performance(
         gt_query_datum = gt_datum["language_queries"][query_id]
 
         # Compute overlap and recalls.
+        # overlap = compute_IoU(
+        #     pred_datum["predicted_times"],
+        #     [[gt_query_datum["clip_start_sec"], gt_query_datum["clip_end_sec"]]],
+        # )
         overlap = compute_IoU(
-            pred_datum["predicted_times"],
-            [pred_datum["ground_truth"]],
-            # [[gt_query_datum["clip_start_sec"], gt_query_datum["clip_end_sec"]]],
+            pred_datum["predicted_frame_number"],
+            [pred_datum["ground_truth_frame_number"]]
         )
-        average_IoU.append(np.mean(np.sort(overlap[0])[-3:]))
+        w_is_nan = np.isnan(overlap)
+        overlap[w_is_nan] = 0.0
+        average_IoU.append(np.mean(np.sort(overlap[0])))
+        # average_IoU.append(np.mean(np.sort(overlap[0])[-3:]))
         for tt, threshold in enumerate(thresholds):
             for rr, KK in enumerate(topK):
                 results[tt][rr].append((overlap > threshold)[:KK].any())

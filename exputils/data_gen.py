@@ -7,6 +7,8 @@ import numpy as np
 from nltk.tokenize import word_tokenize
 from tqdm import tqdm
 
+import random
+
 from exputils.data_util import (
     load_json,
     load_lines,
@@ -19,9 +21,10 @@ PAD, UNK = "<PAD>", "<UNK>"
 
 
 class EpisodicNLQProcessor:
-    def __init__(self):
+    def __init__(self, max_pos_len):
         super(EpisodicNLQProcessor, self).__init__()
         self.idx_counter = 0
+        self.max_pos_len = max_pos_len
 
     def reset_idx_counter(self):
         self.idx_counter = 0
@@ -31,8 +34,10 @@ class EpisodicNLQProcessor:
         for vid, data_item in tqdm(
             data.items(), total=len(data), desc=f"process episodic nlq {scope}"
         ):
+           
             fps = float(data_item["fps"])
             duration = float(data_item["num_frames"]) / fps
+            num_frames = int(data_item["num_frames"])
             zipper = zip(
                 data_item["timestamps"],
                 data_item["exact_times"],
@@ -47,6 +52,36 @@ class EpisodicNLQProcessor:
                     words = word_tokenize(sentence.strip().lower(), language="english")
                 else:
                     words = sentence
+
+                start = timestamp[0]
+                end = min(timestamp[1], num_frames-1)
+
+                num_left = start - 0
+                num_right = num_frames - end
+                annotation_length = end - start + 1
+
+                if annotation_length > self.max_pos_len:
+                    continue
+
+                remain_length = self.max_pos_len - annotation_length
+
+                if num_left <= num_right:
+                    idx_min = min(num_left, remain_length)
+                    idx = random.randint(0, idx_min)
+                    start_idx = start - idx
+                    end_idx =  min(start_idx + self.max_pos_len, num_frames)
+                else:
+                    idx_min = min(num_right, remain_length)
+                    idx = random.randint(0, idx_min)
+                    end_idx = end + idx
+                    start_idx =  max(end_idx - self.max_pos_len, 0)        
+
+                if start > 1000 or end > 1000:
+                    continue
+
+                # start_idx = 0
+                # end_idx = min(1000, num_frames-1)
+                
                 record = {
                     "sample_id": self.idx_counter,
                     "vid": str(vid),
@@ -59,6 +94,11 @@ class EpisodicNLQProcessor:
                     "query": sentence.strip().lower(),
                     "annotation_uid": ann_uid,
                     "query_idx": query_idx,
+                    "num_frames": num_frames,
+                    "start_idx": start_idx,
+                    "end_idx": end_idx,
+                    "s_idx": start,
+                    "e_idx": end,
                 }
                 results.append(record)
                 self.idx_counter += 1
@@ -224,9 +264,10 @@ def dataset_gen_bert(data, vfeat_lens, tokenizer, max_pos_len, scope, num_worker
             vid = record["vid"]
             if vid not in vfeat_lens:
                 continue
-            s_ind, e_ind, _ = time_to_index(
-                record["s_time"], record["e_time"], vfeat_lens[vid], record["duration"]
-            )
+            # s_ind, e_ind, _ = time_to_index(
+            #     record["s_time"], record["e_time"], vfeat_lens[vid], record["duration"]
+            # )
+            s_ind, e_ind = 0, 0
             word_ids = tokenizer(record["query"])
             result = {
                 "sample_id": record["sample_id"],
@@ -242,6 +283,10 @@ def dataset_gen_bert(data, vfeat_lens, tokenizer, max_pos_len, scope, num_worker
                 "w_ids": word_ids,
                 "annotation_uid": record["annotation_uid"],
                 "query_idx": record["query_idx"],
+                "start_idx": record["start_idx"],
+                "end_idx": record["end_idx"],
+                "s_idx": record["s_idx"], 
+                "e_idx": record["e_idx"],
             }
             worker_dataset.append(result)
         output_q.put({worker_id: worker_dataset})
@@ -276,8 +321,8 @@ def dataset_gen_bert(data, vfeat_lens, tokenizer, max_pos_len, scope, num_worker
 def gen_or_load_dataset(configs):
     if not os.path.exists(configs.save_dir):
         os.makedirs(configs.save_dir)
-    data_dir = os.path.join("/work/snagabhushan_umass_edu/dataset/", configs.task)
-    feature_dir = os.path.join("/work/snagabhushan_umass_edu/dataset/", configs.task, configs.fv)
+    data_dir = os.path.join("/work/snagabhushan_umass_edu/", "dataset", configs.task)
+    feature_dir = os.path.join("/work/snagabhushan_umass_edu/", "dataset", configs.task, configs.fv)
     if configs.suffix is None:
         save_path = os.path.join(
             configs.save_dir,
@@ -294,17 +339,18 @@ def gen_or_load_dataset(configs):
             )
             + ".pkl",
         )
+    print(f"save_path: {save_path}")
     if os.path.exists(save_path):
         dataset = load_pickle(save_path)
         return dataset
     feat_len_path = os.path.join(feature_dir, "feature_shapes.json")
-    emb_path = os.path.join("data", "features", "glove.840B.300d.txt")
+    # emb_path = os.path.join("data", "features", "glove.840B.300d.txt")
     # load video feature length
     vfeat_lens = load_json(feat_len_path)
     for vid, vfeat_len in vfeat_lens.items():
         vfeat_lens[vid] = min(configs.max_pos_len, vfeat_len)
     # load data
-    processor = EpisodicNLQProcessor()
+    processor = EpisodicNLQProcessor(configs.max_pos_len)
 
     train_data, val_data, test_data = processor.convert(
         data_dir, predictor=configs.predictor
@@ -316,7 +362,7 @@ def gen_or_load_dataset(configs):
         else [train_data, val_data, test_data]
     )
     if configs.predictor == "bert":
-        from transformers import BertTokenizer
+        from transformers import BertTokenizer, BertForPreTraining
 
         tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
         train_set = dataset_gen_bert(

@@ -117,18 +117,20 @@ class MEME(nn.Module):
         super(MEME, self).__init__()
         self.configs = configs
 
-        self.encoder_config = RobertaConfig(num_hidden_layers=24, max_position_embeddings=512, add_cross_attention=False, is_decoder=False )
-        self.decoder_config = RobertaConfig(num_hidden_layers=24, max_position_embeddings=512, add_cross_attention=True, is_decoder=True)
+        self.encoder_config = RobertaConfig(num_hidden_layers=12, max_position_embeddings=800, hidden_size=1024, num_attention_heads=16, add_cross_attention=False, is_decoder=False)
+        self.decoder_config = RobertaConfig(num_hidden_layers=12, max_position_embeddings=800, hidden_size=1024, num_attention_heads=16, add_cross_attention=True, is_decoder=True)
 
-        self.text_features = RobertaModel.from_pretrained("roberta-base", add_pooling_layer = False)
+        self.text_features = RobertaModel.from_pretrained("roberta-large", add_pooling_layer = False)
         # for param in self.text_features.parameters():
         #     param.requires_grad = False
         
-        # self.feature_encoder = RobertaModel.from_pretrained("roberta-base", add_pooling_layer = False)
+        # self.feature_encoder = RobertaModel.from_pretrained("roberta-large", add_pooling_layer = False)
+
+        self.feature_encoder = RobertaModel(config=self.encoder_config, add_pooling_layer = False)
 
         self.feature_decoder = RobertaModel(config=self.decoder_config, add_pooling_layer = False)
 
-        self.hidden_size = self.feature_decoder.config.hidden_size
+        self.hidden_size = self.feature_encoder.config.hidden_size
 
         dropout = configs.drop_rate
 
@@ -162,16 +164,27 @@ class MEME(nn.Module):
 
         video_features = self.project_video(video_features)
         query_features = self.text_features(input_ids=word_ids['input_ids'], attention_mask=word_ids['attention_mask'], token_type_ids=word_ids['token_type_ids'])[0]
-        # video_features = self.feature_encoder(inputs_embeds=video_features, attention_mask=v_mask)[0]
+
+        features = torch.cat((video_features, query_features), 1)
+        masks = torch.cat((v_mask, q_mask), 1).to(torch.int32)
+        token_types = torch.cat(( torch.zeros_like(v_mask), torch.ones_like(q_mask)), 1).to(torch.int32)
+
+        features = self.feature_encoder(inputs_embeds=features, attention_mask=masks, token_type_ids=token_types)[0]
         # query_features = self.feature_encoder(inputs_embeds=query_features, attention_mask=q_mask)[0]
 
-        features = self.feature_decoder(inputs_embeds=video_features, attention_mask=v_mask, encoder_hidden_states=query_features, encoder_attention_mask=q_mask)[0]
+        h_score_1 = self.highlight_layer(features[:,:video_features.shape[1],:])
+        temp_features = features[:,:video_features.shape[1],:] * h_score_1
+
+        features = self.feature_decoder(inputs_embeds=temp_features, attention_mask=v_mask, encoder_hidden_states=query_features, encoder_attention_mask=q_mask)[0]
+
+        # features = self.feature_decoder(inputs_embeds=features[:,:video_features.shape[1],:], attention_mask=v_mask, encoder_hidden_states=query_features, encoder_attention_mask=q_mask)[0]
 
         h_score = self.highlight_layer(features)
 
         features = features * h_score
         logits = self.QA_head(features)
         h_score = h_score.squeeze(-1)
+        h_score_1 = h_score_1.squeeze(-1)
 
         start_logits, end_logits = logits.split(1, dim=-1)
         start_logits = start_logits.squeeze(-1).contiguous()
@@ -179,7 +192,7 @@ class MEME(nn.Module):
 
         # return None, start_logits, end_logits
 
-        return h_score, start_logits, end_logits
+        return h_score_1, h_score, start_logits, end_logits
 
     def extract_index(self, start_logits, end_logits):
         start_prob = nn.Softmax(dim=1)(start_logits)

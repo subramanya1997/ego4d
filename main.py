@@ -30,9 +30,14 @@ def main(configs, parser):
     configs.word_size = dataset.get("n_words", -1)
 
     # get train and test loader
-    visual_features = load_video_features(
-        os.path.join("/work/snagabhushan_umass_edu/dataset/", configs.task, configs.fv), configs.max_pos_len
-    )
+    if configs.use_max_pos_len:
+        visual_features = load_video_features(
+            os.path.join("/work/snagabhushan_umass_edu/dataset/", configs.task, configs.fv), configs.max_pos_len
+        )
+    else:
+        visual_features = load_video_features(
+            os.path.join("/work/snagabhushan_umass_edu/dataset/", configs.task, configs.fv), None
+        )
     # If video agnostic, randomize the video features.
     if configs.video_agnostic:
         visual_features = {
@@ -97,6 +102,9 @@ def main(configs, parser):
         model = MEME(
             configs=configs, word_vectors=dataset.get("word_vector", None)
         ).to(device)
+
+        if configs.load_model is not None:
+            model.load_state_dict(torch.load(configs.load_model))
         # build optimizer and scheduler
         optimizer, scheduler = build_optimizer_and_scheduler(model, configs=configs)
         # start training
@@ -145,15 +153,20 @@ def main(configs, parser):
                 # generate mask
                 video_mask = convert_length_to_mask(vfeat_lens).to(device)
                 # compute logits
-                h_score, start_logits, end_logits = model(
+                #print(vfeats.shape)
+                h_score_1, h_score, start_logits, end_logits = model(
                     word_ids, char_ids, vfeats, video_mask, query_mask
                 )
-                
+
+                # print(h_score_1.shape, h_score.shape, h_labels.shape, start_logits.shape, end_logits.shape, s_labels, e_labels) 
                 # compute loss
                 # highlight_loss = model.compute_highlight_loss(
                 #     h_score, h_labels, video_mask
                 # )
+                highlight_loss_1 = model.compute_f_iou_loss(h_score_1, h_labels)
                 highlight_loss = model.compute_f_iou_loss(h_score, h_labels)
+
+                highlight_loss = (highlight_loss + highlight_loss_1) / 2.0
 
                 loc_loss = model.compute_cross_entropy_loss(
                     start_logits, end_logits, s_labels, e_labels
@@ -163,9 +176,9 @@ def main(configs, parser):
                 # compute and apply gradients
                 optimizer.zero_grad()
                 total_loss.backward()
-                nn.utils.clip_grad_norm_(
-                    model.parameters(), configs.clip_norm
-                )  # clip gradient
+                #nn.utils.clip_grad_norm_(
+                #    model.parameters(), configs.clip_norm
+                #)  # clip gradient
                 optimizer.step()
                 scheduler.step()
 

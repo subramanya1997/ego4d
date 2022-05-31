@@ -66,7 +66,7 @@ def read_command_line():
         default=5.0,
         help="lambda for highlight region",
     )
-    parser.add_argument("--num_heads", type=int, default=8, help="number of heads")
+    parser.add_argument("--num_heads", type=int, default=1, help="number of heads")
     parser.add_argument("--drop_rate", type=float, default=0.2, help="dropout rate")
     parser.add_argument(
         "--predictor", type=str, default="bert", help="[rnn | transformer]"
@@ -76,12 +76,12 @@ def read_command_line():
     parser.add_argument("--seed", type=int, default=12345, help="random seed")
     parser.add_argument("--mode", type=str, default="train", help="[train | test]")
     parser.add_argument("--epochs", type=int, default=100, help="number of epochs")
-    parser.add_argument("--batch_size", type=int, default=6, help="batch size")
+    parser.add_argument("--batch_size", type=int, default=12, help="batch size")
     parser.add_argument(
         "--num_train_steps", type=int, default=None, help="number of training steps"
     )
     parser.add_argument(
-        "--init_lr", type=float, default=0.00001, help="initial learning rate"
+        "--init_lr", type=float, default=0.00005, help="initial learning rate"
     )
     parser.add_argument(
         "--clip_norm", type=float, default=1.0, help="gradient clip norm"
@@ -122,5 +122,19 @@ def read_command_line():
         default=None,
         help="set to the last `_xxx` in ckpt repo to eval results",
     )
+    parser.add_argument(
+        "--load_model",
+        type=str,
+        default=None,
+        help="set to the last `_xxx` in ckpt repo to eval results",
+    )
+    parser.add_argument(
+        "--use_max_pos_len",
+        dest="use_max_pos_len",
+        action="store_true",
+        default=False,
+        help="Reduce feature dim to max_pos_len",
+    )
+
     configs = parser.parse_args()
     return configs, parser

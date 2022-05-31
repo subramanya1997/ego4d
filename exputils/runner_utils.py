@@ -75,7 +75,7 @@ def eval_test(
             enumerate(data_loader),
             total=len(data_loader),
             desc="evaluate {}".format(mode),
-        ):
+        ):  
             # prepare features
             vfeats, vfeat_lens = vfeats.to(device), vfeat_lens.to(device)
 
@@ -95,7 +95,7 @@ def eval_test(
             # generate mask
             video_mask = convert_length_to_mask(vfeat_lens).to(device)
             # compute predicted results
-            _, start_logits, end_logits = model(
+            _, _, start_logits, end_logits = model(
                 word_ids, char_ids, vfeats, video_mask, query_mask
             )
             start_indices, end_indices = model.extract_index(start_logits, end_logits)
@@ -106,17 +106,21 @@ def eval_test(
             for record, starts, ends in zip(records, start_indices, end_indices):
                 # Convert all indices to times.
                 timewindow_predictions = []
+                timewindow_feature_Frames = []
                 for start, end in zip(starts, ends):
-                    # start_time, end_time = index_to_time(
-                    #     start, end, record["v_len"], record["duration"]
-                    # )
-                    timewindow_predictions.append([int(start), int(end)])
+                    start_time, end_time = index_to_time(
+                        start, end, record["v_len"], record["duration"]
+                    )
+                    timewindow_feature_Frames.append([float(start), float(end)])
+                    timewindow_predictions.append([float(start_time), float(end_time)])
                 new_datum = {
                     "clip_uid": record["vid"],
                     "annotation_uid": record["annotation_uid"],
                     "query_idx": int(record["query_idx"]),
                     "predicted_times": copy.deepcopy(timewindow_predictions),
+                    "predicted_frame_number": copy.deepcopy(timewindow_feature_Frames),
                     "ground_truth": [int(record["s_ind"]), int(record["e_ind"])],
+                    "ground_truth_frame_number": [int(record["s_u_idx"]), int(record["e_u_idx"])],
                     "length": int(record["v_len"]),
                 }
                 predictions.append(new_datum)
